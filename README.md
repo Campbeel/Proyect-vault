@@ -1,35 +1,20 @@
-# Web3 Hackathon Starter Repo
+# Pagina vaul usando web3
 
-Este repositorio sirve como base para proyectos de hackathon web3, desarrollado para el ramo BLOCKCHAIN Y ALGORITMOS DESCENTRALIZADOS (CIT3358_CA01) de la Universidad Diego Portales.
+Este repositorio es la base del proyecto de guardado y consulta de archivos/fotos/videos los cuales son guardados en la blockchain
 
 ## 🏗️ Estructura del Proyecto
 
-El proyecto está organizado en tres directorios principales:
+El proyecto está organizado en 2 directorios principales:
 
-```
-.
-├── backend/         # Servidor backend (si es necesario)
-├── contracts/       # Smart contracts y scripts de despliegue
-└── frontend/        # Aplicación web frontend
-```
+Frontend: En el cual esta la lagica de web3(conexion a billetera y demas)
 
-## 🚀 Comenzando
+Backend: Conexion con:
+        -IPFS
+        -Pinata
+        -Gemini 
+![image](https://github.com/user-attachments/assets/9a9abc89-214b-4057-b977-ba0b02602d62)
 
-### Prerrequisitos
-
-- Node.js (versión recomendada: 18.x o superior)
-- npm o yarn
-- MetaMask u otra wallet compatible con Ethereum
-- [Hardhat](https://hardhat.org/) para desarrollo de smart contracts
-
-## 📝 Características
-
-- Estructura modular y escalable
-- Integración con MetaMask y otras wallets
-- Smart contracts pre-configurados
-- Frontend moderno y responsive
-- Backend opcional para funcionalidades adicionales
 
 ## 👥 Autores
 
-- Cristian Valdivia - [@tesslaRay](https://github.com/TesslaRay)
+- Benjamin Muñoz
