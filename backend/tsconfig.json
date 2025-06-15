@@ -6,12 +6,10 @@
     "resolveJsonModule": true,
     "outDir": "./dist",
     "esModuleInterop": true,
-    "forceConsistentCasingInFileNames": true,
-    "strict": true,
     "baseUrl": ".",
     "skipLibCheck": true,
     "lib": ["es2020"],
-    "noImplicitAny": false,
+    "noImplicitAny": true,
     "moduleResolution": "node",
     "paths": {
       "@root": ["./src"],

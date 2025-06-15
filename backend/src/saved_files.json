@@ -1,10 +1,8 @@
 [
   {
-    "id": "ipfs://QmdbJUydHA9RoQtnyLxEUHbqWNXqdVhaVNKTkak4eVT7Ld",
-    "ipfsUrl": "ipfs://QmdbJUydHA9RoQtnyLxEUHbqWNXqdVhaVNKTkak4eVT7Ld",
-    "originalFileName": "datagob.csv",
-    "fileType": "text/csv",
-    "encryptedFileKey": "U2FsdGVkX192z9oqKOXxATpxB8ZeOB9z60CUtSuECn0ru6yBWp+fH4YTdWv+S/JKPxJWGB/TVhY4alCBT/cyYm5RWxAHFBnahD774LiQGkvMNg4E3LHD0j5+2l38JHM6",
-    "nonce": "fzk1m9jbbxw8safljq7wjl"
+    "id": "ipfs://QmPwkBZCJKDGmkHPiticGHYsn7RAJXiWs6YKeMJyGFi2fA",
+    "ipfsUrl": "ipfs://QmPwkBZCJKDGmkHPiticGHYsn7RAJXiWs6YKeMJyGFi2fA",
+    "originalFileName": "robot_guardando_archivos_500x500.png",
+    "fileType": "image/png"
   }
 ]

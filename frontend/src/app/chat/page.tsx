@@ -89,11 +89,56 @@ export default function ChatPage() {
           const toolResults = response.data.content;
           for (const result of toolResults) {
             if (result.toolOutput.result) {
-              setMessages((msgs) => [...msgs, { sender: "agente", text: result.toolOutput.result.message }]);
+              const agentMessage: Message = {
+                sender: "agente",
+                text: result.toolOutput.result.message,
+              };
+
+              // Asegurar que savedFileId se establece para el mensaje del agente si fileId está presente
+              if (result.toolOutput.result.fileId) {
+                agentMessage.savedFileId = result.toolOutput.result.fileId;
+              }
+
+              // Si la salida de la herramienta incluye información completa del archivo para guardar
+              if (result.toolOutput.result.fileId && result.toolOutput.result.ipfsUrl && result.toolOutput.result.originalFileName && result.toolOutput.result.fileType) {
+                const newSavedFile: SavedFile = {
+                  id: result.toolOutput.result.fileId, // Usando fileId del resultado de la herramienta como ID
+                  ipfsUrl: result.toolOutput.result.ipfsUrl,
+                  originalFileName: result.toolOutput.result.originalFileName,
+                  fileType: result.toolOutput.result.fileType,
+                };
+                
+                // Añadir el archivo a savedFiles si no existe ya para que handleViewFile pueda encontrarlo
+                setSavedFiles(prev => {
+                  if (!prev.some(f => f.id === newSavedFile.id)) {
+                    return [...prev, newSavedFile];
+                  }
+                  return prev;
+                });
+              }
+              console.log("Agent Message (tool_calls):", agentMessage);
+              setMessages((msgs) => [...msgs, agentMessage]);
             }
           }
         } else if (response.data.type === 'text') {
-          setMessages((msgs) => [...msgs, { sender: "agente", text: response.data.content }]);
+          const agentMessage: Message = {
+            sender: "agente",
+            text: response.data.content
+          };
+
+          // Si la respuesta de texto también incluye información del archivo para previsualizar
+          if (response.data.savedFileId) {
+            agentMessage.savedFileId = response.data.savedFileId;
+            // Opcionalmente, si fileType y fileUrl se proporcionan directamente para esta previsualización
+            if (response.data.fileType) {
+              agentMessage.fileType = response.data.fileType;
+            }
+            if (response.data.fileUrl) {
+              agentMessage.fileUrl = response.data.fileUrl;
+            }
+          }
+          console.log("Agent Message (text):", agentMessage);
+          setMessages((msgs) => [...msgs, agentMessage]);
         }
       } catch (error) {
         console.error("Error al comunicarse con el agente:", error);
@@ -132,7 +177,7 @@ export default function ChatPage() {
 
           if (response.data.ipfsUrl) {
             const newSavedFile: SavedFile = {
-              id: generateNonce(), // Usar un ID simple
+              id: response.data.ipfsUrl, // Usar ipfsUrl como ID consistente con el backend
               ipfsUrl: response.data.ipfsUrl,
               originalFileName: file.name,
               fileType: file.type,
@@ -142,7 +187,7 @@ export default function ChatPage() {
             setMessages((msgs) => [...msgs, { 
               sender: "agente", 
               text: `Archivo "${file.name}" guardado exitosamente en IPFS.`, 
-              savedFileId: newSavedFile.id 
+              savedFileId: newSavedFile.id // Asegurar que savedFileId también sea el ipfsUrl
             }]);
           } else {
             throw new Error("No se recibió un hash IPFS válido.");
@@ -218,6 +263,49 @@ export default function ChatPage() {
 
   return (
     <main className="w-screen h-screen flex flex-col bg-black">
+      {isViewingFile && viewingFileUrl && (
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
+          <div className="bg-gray-800 rounded-lg shadow-xl overflow-hidden flex flex-col max-w-4xl w-full h-full">
+            <div className="flex justify-between items-center p-4 border-b border-gray-700">
+              <h3 className="text-lg font-semibold text-white truncate">Previsualizando: {viewingFileName}</h3>
+              <button
+                onClick={handleCloseFileView}
+                className="text-gray-400 hover:text-white transition-colors duration-200"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div className="flex-1 flex items-center justify-center p-4 bg-gray-900">
+              {viewingFileType?.startsWith('image/') && (
+                <img src={viewingFileUrl} alt={viewingFileName || "Previsualización de imagen"} className="max-w-full max-h-full object-contain" />
+              )}
+              {viewingFileType === 'application/pdf' && (
+                <iframe src={viewingFileUrl} className="w-full h-full border-0" title="Previsualización de PDF"></iframe>
+              )}
+              {viewingFileType?.startsWith('text/') && (
+                <iframe src={viewingFileUrl} className="w-full h-full border-0" title="Previsualización de texto"></iframe>
+              )}
+              {viewingFileType && !viewingFileType.startsWith('image/') && viewingFileType !== 'application/pdf' && !viewingFileType.startsWith('text/') && (
+                <div className="text-white text-center">
+                  <p className="mb-2">No se puede previsualizar este tipo de archivo ({viewingFileType}).</p>
+                  <a
+                    href={viewingFileUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-400 hover:underline"
+                    download
+                  >
+                    Descargar {viewingFileName}
+                  </a>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="flex-1 overflow-y-auto p-6 space-y-2">
         {messages.map((msg, idx) => (
           <div
@@ -268,30 +356,6 @@ export default function ChatPage() {
         multiple // Permitir selección múltiple
         accept="*/*" // Aceptar cualquier tipo de archivo
       />
-
-      {isViewingFile && viewingFileUrl && (
-        <div className="fixed inset-0 bg-black bg-opacity-90 flex items-center justify-center z-50 p-4">
-          <div className="bg-gray-900 p-6 rounded-lg shadow-xl max-w-3xl w-full max-h-[90vh] overflow-auto flex flex-col">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-bold text-white">Previsualización de Archivo</h2>
-              <button onClick={handleCloseFileView} className="text-gray-400 hover:text-white text-2xl font-bold">&times;</button>
-            </div>
-            <p className="text-gray-300 mb-2">Nombre: {viewingFileName}</p>
-            <p className="text-gray-300 mb-4">Tipo: {viewingFileType}</p>
-            <div className="flex-1 flex items-center justify-center p-4 bg-gray-800 rounded-lg overflow-hidden">
-              {viewingFileType?.startsWith('image') && (
-                <img src={viewingFileUrl} alt="Previsualización" className="max-w-full max-h-full object-contain" />
-              )}
-              {viewingFileType?.startsWith('video') && (
-                <video controls src={viewingFileUrl} className="max-w-full max-h-full object-contain" />
-              )}
-              {!viewingFileType?.startsWith('image') && !viewingFileType?.startsWith('video') && (
-                <p className="text-gray-400">No hay previsualización disponible para este tipo de archivo.</p>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
 
       {selectedFiles.length > 0 && (
         <div className="p-4 border-t border-gray-800 bg-black flex flex-col items-center">

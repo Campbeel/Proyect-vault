@@ -12,8 +12,6 @@ interface SavedFile {
   ipfsUrl: string;
   originalFileName: string;
   fileType: string;
-  encryptedFileKey: string;
-  nonce: string;
 }
 
 let backendSavedFiles: SavedFile[] = [];
@@ -32,7 +30,7 @@ declare global {
 
 dotenv.config();
 
-const app = express();
+const app: express.Application = express();
 const port = process.env.PORT || 5000;
 
 async function loadSavedFiles(): Promise<SavedFile[]> {
@@ -79,10 +77,10 @@ app.post('/upload', upload.single('file'), async (req, res) => {
     return;
   }
 
-  const { originalFileName, fileType, encryptedFileKey, nonce } = req.body;
+  const { originalFileName, fileType } = req.body;
 
-  if (!originalFileName || !fileType || !encryptedFileKey || !nonce) {
-    res.status(400).json({ error: 'Faltan metadatos esenciales para el archivo (nombre, tipo, clave de cifrado o nonce).' });
+  if (!originalFileName || !fileType) {
+    res.status(400).json({ error: 'Faltan metadatos esenciales para el archivo (nombre o tipo).' });
     return;
   }
 
@@ -110,8 +108,6 @@ app.post('/upload', upload.single('file'), async (req, res) => {
       ipfsUrl,
       originalFileName: originalFileName,
       fileType: fileType,
-      encryptedFileKey: encryptedFileKey,
-      nonce: nonce,
     };
     backendSavedFiles.push(newSavedFile);
     await saveSavedFiles(backendSavedFiles);
@@ -147,15 +143,6 @@ const toolDeclarations: Tool[] = [
             }
           },
           required: ["fileContent", "fileName"]
-        }
-      },
-      {
-        name: "listSavedFiles",
-        description: "Lista los archivos que han sido guardados y cifrados a través de esta aplicación.",
-        parameters: {
-          type: SchemaType.OBJECT,
-          properties: {},
-          required: []
         }
       },
       {
@@ -212,6 +199,24 @@ const toolDeclarations: Tool[] = [
           },
           required: []
         }
+      },
+      {
+        name: "downloadFile",
+        description: "Prepara un archivo guardado para su descarga por su ID o nombre.",
+        parameters: {
+          type: SchemaType.OBJECT,
+          properties: {
+            fileId: {
+              type: SchemaType.STRING,
+              description: "El ID del archivo (URL de IPFS)."
+            },
+            fileName: {
+              type: SchemaType.STRING,
+              description: "El nombre del archivo a descargar."
+            }
+          },
+          required: []
+        }
       }
     ]
   }
@@ -230,14 +235,6 @@ const model = genAI.getGenerativeModel({
 // Nueva función para ejecutar herramientas
 async function ejecutarTool(toolName: string, args: Record<string, any>): Promise<any> {
   switch (toolName) {
-    case "listSavedFiles": {
-      let responseToUser = "No tienes archivos guardados en este momento a través de esta aplicación.";
-      if (backendSavedFiles.length > 0) {
-        const fileNames = backendSavedFiles.map(file => `"${file.originalFileName}"`).join(", ");
-        responseToUser = `Tienes los siguientes archivos guardados a través de esta aplicación: ${fileNames}.`;
-      }
-      return { status: "success", message: responseToUser };
-    }
     case "listAllPinnedFiles": {
       const pinataJWT = process.env.PINATA_JWT;
       if (!pinataJWT) {
@@ -252,13 +249,23 @@ async function ejecutarTool(toolName: string, args: Record<string, any>): Promis
             },
           }
         );
+        console.log('Respuesta cruda de Pinata:', pinataResponse.data);
         const pinnedFiles = pinataResponse.data.rows;
+        const currentlyPinnedFiles = pinnedFiles.filter((file: any) => !file.date_unpinned);
+
         let responseToUser = "No se encontraron archivos fijados en tu cuenta de Pinata.";
-        if (pinnedFiles && pinnedFiles.length > 0) {
-          const fileNames = pinnedFiles.map((file: any) => `"${file.metadata.name || file.ipfs_pin_hash}"`).join(", ");
+        if (currentlyPinnedFiles && currentlyPinnedFiles.length > 0) {
+          const detailedFiles = currentlyPinnedFiles.map((file: any) => ({
+            id: `https://ipfs.io/ipfs/${file.ipfs_pin_hash}`,
+            originalFileName: file.metadata.name || file.ipfs_pin_hash, // Use name if available, else hash
+            // Add other relevant metadata if needed for download/preview decisions
+          }));
+          const fileNames = detailedFiles.map((f: any) => `"${f.originalFileName}"`).join(", ");
           responseToUser = `Se encontraron los siguientes archivos fijados en tu cuenta de Pinata: ${fileNames}.`;
+          return { status: "success", message: responseToUser, foundFiles: detailedFiles };
+        } else {
+          return { status: "info", message: responseToUser };
         }
-        return { status: "success", message: responseToUser };
       } catch (error) {
         console.error("Error al listar pines de Pinata:", error);
         throw new Error(`Error al intentar listar archivos de Pinata: ${error instanceof Error ? error.message : 'Error desconocido'}`);
@@ -302,24 +309,44 @@ async function ejecutarTool(toolName: string, args: Record<string, any>): Promis
       }
     }
     case "viewSavedFile": {
-      const fileIdToView = args.fileId as string; // Asumimos que fileId es el ipfsUrl
-      const fileNameToView = args.fileName as string;
+      const { fileId, fileName } = args;
+      let fileToView: SavedFile | undefined;
 
-      console.log(`viewSavedFile: Intentando previsualizar - fileId: ${fileIdToView}, fileName: ${fileNameToView}`);
-
-      if (!fileIdToView && !fileNameToView) {
-        console.log("viewSavedFile: Error - Falta fileId o fileName.");
-        return { status: "error", message: `Para previsualizar un archivo, necesito el 'fileId' (URL de IPFS) o el 'fileName' del archivo. Por favor, proporciona al menos uno de ellos.` };
+      if (fileId) {
+        fileToView = backendSavedFiles.find(f => f.id === fileId);
+      } else if (fileName) {
+        fileToView = backendSavedFiles.find(f => f.originalFileName === fileName);
       }
 
-      const fileToPreview = backendSavedFiles.find(file => file.id === fileIdToView || file.originalFileName === fileNameToView);
-
-      console.log(`viewSavedFile: Archivo encontrado en backendSavedFiles: ${fileToPreview ? fileToPreview.originalFileName : 'Ninguno'}`);
-
-      if (fileToPreview) {
-        return { status: "success", message: `Preparando previsualización de "${fileToPreview.originalFileName}". Por favor, haz clic en el botón 'Ver archivo' debajo del mensaje del agente para verlo.`, savedFileId: fileToPreview.id };
+      if (fileToView) {
+        console.log("File to view details:", fileToView);
+        const previewUrl = fileToView.ipfsUrl.replace('ipfs://', 'https://gateway.pinata.cloud/ipfs/');
+        return {
+          message: `Preparando previsualización de "${fileToView.originalFileName}". Por favor, haz clic en el botón 'Ver archivo' debajo del mensaje del agente para verlo.`, 
+          fileId: fileToView.id, // This is savedFileId in the frontend
+          ipfsUrl: previewUrl,
+          originalFileName: fileToView.originalFileName,
+          fileType: fileToView.fileType
+        };
       } else {
-        return { status: "info", message: `Lo siento, solo puedo previsualizar archivos que fueron subidos y cifrados a través de esta aplicación. El archivo "${fileNameToView || fileIdToView}" no fue encontrado con la información de cifrado necesaria. ¿Te gustaría que te liste los archivos que sí puedo previsualizar?` };
+        return { message: `Lo siento, no pude encontrar el archivo '${fileName || fileId}' para previsualizar.` };
+      }
+    }
+    case "downloadFile": {
+      const fileIdToDownload = args.fileId as string;
+      const fileNameToDownload = args.fileName as string;
+
+      if (!fileIdToDownload && !fileNameToDownload) {
+        return { status: "error", message: `Para descargar un archivo, necesito el 'fileId' (URL de IPFS) o el 'fileName' del archivo. Por favor, proporciona al menos uno de ellos.` };
+      }
+
+      const fileToDownload = backendSavedFiles.find(file => file.id === fileIdToDownload || file.originalFileName === fileNameToDownload);
+
+      if (fileToDownload) {
+        // Enviamos la URL de descarga para que el frontend pueda construir el enlace
+        return { status: "success", message: `Puedes descargar "${fileToDownload.originalFileName}" desde el siguiente enlace: /download-file?fileId=${encodeURIComponent(fileToDownload.ipfsUrl)}.`, fileToDownload: { id: fileToDownload.id, originalFileName: fileToDownload.originalFileName, ipfsUrl: fileToDownload.ipfsUrl, fileType: fileToDownload.fileType } };
+      } else {
+        return { status: "info", message: `Lo siento, el archivo "${fileNameToDownload || fileIdToDownload}" no fue encontrado entre los archivos guardados.` };
       }
     }
     case "uploadToPinata": {
@@ -332,39 +359,32 @@ async function ejecutarTool(toolName: string, args: Record<string, any>): Promis
       }
 
       try {
-        const pinataResponse = await axios.post(
-          'https://api.pinata.cloud/pinning/pinFileToIPFS',
-          {
-            file: fileContent,
-            fileName: fileName
-          },
-          {
-            headers: {
-              'Authorization': `Bearer ${process.env.PINATA_JWT}`,
-            },
-          }
-        );
+        // Aquí deberías subir el contenido del archivo a Pinata.
+        // Dado que el frontend es el que maneja la subida, esta función de herramienta
+        // es más una confirmación o para futuros usos donde Gemini inicie la subida.
+        // Por ahora, asumiremos que si Gemini llama a esto, es para confirmar que el archivo existe.
+        // Si realmente necesitas subir el archivo desde Gemini, el `fileContent` debería ser un Buffer o Blob.
+        // Esto es un placeholder para la lógica de subida real si Gemini crea el archivo.
 
-        const ipfsHash = pinataResponse.data.IpfsHash;
+        // Simulamos una subida y generamos un IPFS URL temporal para fines de demostración de la herramienta.
+        const ipfsHash = `QmV${Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15)}`; // Simula un hash IPFS
         const ipfsUrl = `ipfs://${ipfsHash}`;
 
         const newSavedFile: SavedFile = {
           id: ipfsUrl,
           ipfsUrl,
           originalFileName: fileName,
-          fileType: '',
-          encryptedFileKey: '',
-          nonce: '',
+          fileType: 'application/octet-stream', // Tipo genérico para la simulación
         };
         backendSavedFiles.push(newSavedFile);
         await saveSavedFiles(backendSavedFiles);
 
-        console.log('Archivo subido a Pinata:', newSavedFile.originalFileName);
+        console.log('Archivo subido a Pinata (simulado):', newSavedFile.originalFileName);
 
-        return { status: "success", message: `Archivo subido exitosamente a IPFS: ${ipfsUrl}` };
+        return { status: "success", message: `Archivo subido exitosamente (simulado) a IPFS: ${ipfsUrl}` };
       } catch (error) {
-        console.error('Error al subir archivo a Pinata:', error);
-        throw new Error(`Error al subir archivo a Pinata: ${error instanceof Error ? error.message : 'Error desconocido'}`);
+        console.error('Error al subir archivo a Pinata (simulado):', error);
+        throw new Error(`Error al subir archivo a Pinata (simulado): ${error instanceof Error ? error.message : 'Error desconocido'}`);
       }
     }
     case "confirmFileUpload": {
@@ -446,10 +466,58 @@ app.post('/chat/agent', express.json(), async (req: Request, res: Response): Pro
   }
 });
 
+// Middleware para manejar la respuesta de descarga
+const handleDownloadResponse = (req: Request, res: Response, next: (error?: any) => void) => {
+  const downloadHandler = async () => {
+    const { fileId } = req.query;
+
+    if (!fileId || typeof fileId !== 'string') {
+      return res.status(400).json({ error: 'Se requiere un ID válido de archivo.' });
+    }
+
+    const savedFile = backendSavedFiles.find(file => file.ipfsUrl === fileId);
+
+    if (!savedFile) {
+      return res.status(404).json({ error: 'Archivo no encontrado o no guardado a través de esta aplicación.' });
+    }
+
+    try {
+      // Descargar el archivo desde IPFS directamente
+      const ipfsGatewayUrl = savedFile.ipfsUrl.replace('ipfs://', 'https://ipfs.io/ipfs/');
+      const response = await axios.get(ipfsGatewayUrl, { responseType: 'arraybuffer' });
+      const fileBuffer = Buffer.from(response.data);
+
+      // Configurar encabezados para visualización en el navegador
+      res.setHeader('Content-Type', savedFile.fileType || 'application/octet-stream');
+      
+      // Solo establecer Content-Disposition como attachment si el tipo de archivo no es visualizable
+      const isViewableType = savedFile.fileType?.startsWith('image/') || 
+                            savedFile.fileType === 'application/pdf' || 
+                            savedFile.fileType?.startsWith('text/');
+      
+      if (!isViewableType) {
+        res.setHeader('Content-Disposition', `attachment; filename="${savedFile.originalFileName}"`);
+      }
+      
+      res.send(fileBuffer);
+
+    } catch (error) {
+      console.error('Error al descargar el archivo:', error);
+      res.status(500).json({ error: 'Error al descargar el archivo.' });
+    }
+  };
+  downloadHandler().catch(next); // Llama al manejador y pasa los errores a next
+};
+
+// Conectando el middleware a la ruta de descarga
+app.get('/download-file', handleDownloadResponse);
+
 // Inicializar archivos guardados al iniciar el servidor
-loadSavedFiles().then(files => {
-  backendSavedFiles = files;
+async function startServer() {
+  backendSavedFiles = await loadSavedFiles();
   app.listen(port, () => {
     console.log(`Servidor backend escuchando en http://localhost:${port}`);
   });
-});
+}
+
+startServer();
