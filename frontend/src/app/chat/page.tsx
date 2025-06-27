@@ -4,6 +4,7 @@ import { useAccount } from "wagmi";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useCallback } from "react";
 import axios from "axios";
+import { useDisconnect } from "wagmi";
 
 interface Message {
   sender: "user" | "agente";
@@ -20,9 +21,20 @@ interface SavedFile {
   fileType: string;
 }
 
+// Snackbar para confirmaciones
+function Snackbar({ message, onClose }: { message: string, onClose: () => void }) {
+  return (
+    <div className="fixed bottom-8 left-1/2 transform -translate-x-1/2 bg-green-600 text-white px-6 py-3 rounded-xl shadow-lg z-50 animate-fade-in">
+      {message}
+      <button className="ml-4 text-white font-bold" onClick={onClose}>X</button>
+    </div>
+  );
+}
+
 export default function ChatPage() {
   const { isConnected, address } = useAccount();
   const router = useRouter();
+  const { disconnect } = useDisconnect();
   const [messages, setMessages] = useState<Message[]>([
     { sender: "agente", text: "¡Hola! ¿En qué puedo ayudarte hoy?" },
   ]);
@@ -38,37 +50,39 @@ export default function ChatPage() {
   const [viewingFileUrl, setViewingFileUrl] = useState<string | null>(null);
   const [viewingFileName, setViewingFileName] = useState<string | null>(null);
   const [viewingFileType, setViewingFileType] = useState<string | null>(null);
-
-  const generateNonce = (): string => {
-    // Generar un nonce aleatorio. Para mayor seguridad en producción, considera un UUID.
-    return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
-  };
-
-  const establishSessionKey = useCallback(async (): Promise<string | null> => {
-    // Simplemente retorna una clave ficticia o indica que la sesión está establecida.
-    // Esto elimina la necesidad de firmar un mensaje y la lógica de cifrado por ahora.
-    if (!address) {
-      setMessages((msgs) => [...msgs, { sender: "agente", text: "No hay billetera conectada." }]);
-      return null;
-    }
-    setMessages((msgs) => [...msgs, { sender: "agente", text: "Conexión de billetera establecida." }]);
-    return "dummy-session-key"; // Clave ficticia
-  }, [address, setMessages]);
+  // Generar el nonce solo en el cliente para evitar hydration error
+  const [nonce, setNonce] = useState<string>("");
+  const [isMounted, setIsMounted] = useState(false);
+  const [actionLoading, setActionLoading] = useState<string | null>(null); // id del archivo en acción
+  const [snackbar, setSnackbar] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!isConnected) {
-      router.replace("/login");
-    } else {
-      // Intentar establecer la clave de sesión simulada al conectar la billetera
+    // Solo se ejecuta en el cliente
+    const n = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+    setNonce(n);
+  }, []);
+
+  useEffect(() => { setIsMounted(true); }, []);
+
+  const establishSessionKey = useCallback(async (): Promise<string | null> => {
+    // Solo retorna una clave ficticia, sin mensajes para el usuario
+    if (!address) {
+      return null;
+    }
+    return "dummy-session-key"; // Clave ficticia
+  }, [address]);
+
+  useEffect(() => {
+    if (isConnected) {
       establishSessionKey();
     }
-  }, [isConnected, router, address, establishSessionKey]);
+  }, [isConnected, address, establishSessionKey]);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "auto" });
   }, [messages]);
 
-  if (!isConnected) return null;
+  if (!isMounted) return null;
 
   const handleSend = async (e?: React.FormEvent) => {
     e?.preventDefault();
@@ -167,7 +181,7 @@ export default function ChatPage() {
           formData.append('fileType', file.type);
           // Estos campos pueden ser necesarios en el backend, pero los valores son ficticios si no hay cifrado real
           formData.append('encryptedFileKey', "dummy-key");
-          formData.append('nonce', "dummy-nonce");
+          formData.append('nonce', nonce || "dummy-nonce");
 
           const response = await axios.post('http://localhost:5000/upload', formData, {
             headers: {
@@ -245,13 +259,13 @@ export default function ChatPage() {
   };
 
   const handleViewFile = async (fileToView: SavedFile) => {
-    setMessages((msgs) => [...msgs, { sender: "agente", text: `Preparando para ver ${fileToView.originalFileName}...` }]);
+    // Solo logs para depuración
+    console.log(`Preparando para ver ${fileToView.originalFileName}...`);
     setIsViewingFile(true);
     setViewingFileUrl(fileToView.ipfsUrl.replace('ipfs://', 'https://gateway.pinata.cloud/ipfs/'));
     setViewingFileName(fileToView.originalFileName);
     setViewingFileType(fileToView.fileType);
-
-    setMessages((msgs) => [...msgs, { sender: "agente", text: `"${fileToView.originalFileName}" está listo para previsualizar.` }]);
+    console.log(`"${fileToView.originalFileName}" está listo para previsualizar.`);
   };
 
   const handleCloseFileView = () => {
@@ -261,44 +275,116 @@ export default function ChatPage() {
     setViewingFileType(null);
   };
 
+  // Handler para desconectar y volver a la landing
+  const handleDisconnect = () => {
+    disconnect();
+    router.push("/");
+  };
+
+  // Descarga el archivo usando fetch y Blob para forzar el nombre original
+  const handleDownloadFile = async () => {
+    if (!viewingFileUrl || !viewingFileName) return;
+    try {
+      const response = await fetch(viewingFileUrl);
+      if (!response.ok) throw new Error('No se pudo descargar el archivo');
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = viewingFileName;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      alert('Error al descargar el archivo');
+    }
+  };
+
+  // Eliminar archivo
+  const handleDeleteFile = async (file: SavedFile) => {
+    setActionLoading(file.id);
+    try {
+      await axios.post('http://localhost:5000/chat/agent', {
+        message: `Elimina el archivo ${file.originalFileName}`
+      });
+      setSavedFiles(prev => prev.filter(f => f.id !== file.id));
+      setSnackbar(`Archivo "${file.originalFileName}" eliminado correctamente.`);
+    } catch (error) {
+      setSnackbar('Error al eliminar el archivo.');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
   return (
-    <main className="w-screen h-screen flex flex-col bg-black">
+    <main className="w-screen h-screen flex flex-col bg-gradient-to-b from-gray-900 to-black relative">
+      {/* Botón de desconexión arriba a la derecha */}
+      <div className="absolute top-6 right-8 z-50">
+        <button
+          onClick={handleDisconnect}
+          className="flex items-center gap-2 px-5 py-2 bg-gradient-to-r from-red-500 to-pink-600 text-white rounded-xl font-medium shadow-lg hover:from-red-600 hover:to-pink-700 transition-all duration-300 hover:scale-105"
+        >
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a2 2 0 01-2 2H7a2 2 0 01-2-2V7a2 2 0 012-2h4a2 2 0 012 2v1" />
+          </svg>
+          Desconectar
+        </button>
+      </div>
       {isViewingFile && viewingFileUrl && (
-        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
-          <div className="bg-gray-800 rounded-lg shadow-xl overflow-hidden flex flex-col max-w-4xl w-full h-full">
-            <div className="flex justify-between items-center p-4 border-b border-gray-700">
-              <h3 className="text-lg font-semibold text-white truncate">Previsualizando: {viewingFileName}</h3>
-              <button
-                onClick={handleCloseFileView}
-                className="text-gray-400 hover:text-white transition-colors duration-200"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+        <div className="fixed inset-0 bg-black bg-opacity-90 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
+          <div className="bg-gray-800 rounded-xl shadow-2xl overflow-hidden flex flex-col max-w-4xl w-full h-full border border-gray-700">
+            <div className="flex justify-between items-center p-4 border-b border-gray-700 bg-gray-900">
+              <h3 className="text-lg font-semibold text-white truncate flex items-center gap-2">
+                <svg className="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                 </svg>
-              </button>
+                {viewingFileName}
+              </h3>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleDownloadFile}
+                  className="text-white bg-blue-600 hover:bg-blue-700 transition-colors px-3 py-1 rounded-lg flex items-center gap-1"
+                  title="Descargar archivo"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                  </svg>
+                  Descargar
+                </button>
+                <button
+                  onClick={handleCloseFileView}
+                  className="text-gray-400 hover:text-white transition-colors duration-200 p-2 hover:bg-gray-700 rounded-full"
+                  title="Cerrar previsualización"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
             </div>
             <div className="flex-1 flex items-center justify-center p-4 bg-gray-900">
               {viewingFileType?.startsWith('image/') && (
-                <img src={viewingFileUrl} alt={viewingFileName || "Previsualización de imagen"} className="max-w-full max-h-full object-contain" />
+                <img src={viewingFileUrl} alt={viewingFileName || "Previsualización de imagen"} className="max-w-full max-h-full object-contain rounded-lg shadow-lg" />
               )}
               {viewingFileType === 'application/pdf' && (
-                <iframe src={viewingFileUrl} className="w-full h-full border-0" title="Previsualización de PDF"></iframe>
+                <iframe src={viewingFileUrl} className="w-full h-full border-0 rounded-lg shadow-lg" title="Previsualización de PDF"></iframe>
               )}
               {viewingFileType?.startsWith('text/') && (
-                <iframe src={viewingFileUrl} className="w-full h-full border-0" title="Previsualización de texto"></iframe>
+                <iframe src={viewingFileUrl} className="w-full h-full border-0 rounded-lg shadow-lg" title="Previsualización de texto"></iframe>
               )}
               {viewingFileType && !viewingFileType.startsWith('image/') && viewingFileType !== 'application/pdf' && !viewingFileType.startsWith('text/') && (
-                <div className="text-white text-center">
-                  <p className="mb-2">No se puede previsualizar este tipo de archivo ({viewingFileType}).</p>
-                  <a
-                    href={viewingFileUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-blue-400 hover:underline"
-                    download
-                  >
-                    Descargar {viewingFileName}
-                  </a>
+                <div className="text-white text-center p-6 bg-gray-800 rounded-xl shadow-lg">
+                  <svg className="w-16 h-16 text-gray-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                  <p className="mb-4 text-lg">No se puede previsualizar este tipo de archivo ({viewingFileType})</p>
+                  <span className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg cursor-not-allowed opacity-60">
+                    <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                    </svg>
+                    Descargar desde la barra superior
+                  </span>
                 </div>
               )}
             </div>
@@ -306,39 +392,126 @@ export default function ChatPage() {
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto p-6 space-y-2">
+      <div className="flex-1 overflow-y-auto p-6 space-y-4">
         {messages.map((msg, idx) => (
           <div
             key={idx}
             className={`w-full flex ${msg.sender === "user" ? "justify-end" : "justify-start"}`}
           >
             <div
-              className={`px-3 py-2 text-base ${msg.sender === "user" ? "text-green-400" : "text-white"} ${msg.fileUrl || msg.savedFileId ? 'max-w-xs' : ''}`}
+              className={`px-4 py-3 rounded-2xl max-w-[80%] ${
+                msg.sender === "user" 
+                  ? "bg-green-600 text-white ml-4" 
+                  : "bg-gray-800 text-white mr-4"
+              } ${msg.fileUrl || msg.savedFileId ? 'max-w-xs' : ''}`}
             >
-              {msg.text && <p>{msg.text}</p>}
-              {msg.fileUrl && (
-                <a href={msg.fileUrl} target="_blank" rel="noopener noreferrer" className="text-blue-400 underline break-all">
-                  {msg.fileType?.startsWith('image') && (
-                    <img src={msg.fileUrl} alt="Archivo" className="max-w-full h-auto rounded-lg" />
-                  )}
-                  {msg.fileType?.startsWith('video') && (
-                    <video controls src={msg.fileUrl} className="max-w-full h-auto rounded-lg" />
-                  )}
-                  {!msg.fileType?.startsWith('image') && !msg.fileType?.startsWith('video') && (
-                    <span>Archivo: {msg.fileUrl}</span>
-                  )}
-                </a>
+              {msg.text && (
+                // Si el mensaje contiene viñetas, mostrar como lista
+                msg.text.includes('• ')
+                  ? (
+                      <ul className="text-base list-disc pl-6">
+                        {msg.text.split('\n').map((line, idx) =>
+                          line.trim().startsWith('• ')
+                            ? <li key={idx}>{line.replace(/^• /, '')}</li>
+                            : line.trim() !== '' && <span key={idx}>{line}<br /></span>
+                        )}
+                      </ul>
+                    )
+                  : (
+                      <p className="text-base whitespace-pre-line">{msg.text}</p>
+                    )
               )}
-              {msg.savedFileId && (
-                <button 
-                  onClick={() => {
-                    const file = savedFiles.find(f => f.id === msg.savedFileId);
-                    if (file) handleViewFile(file);
-                  }}
-                  className="text-blue-400 underline break-all block mt-1"
-                >
-                  Ver archivo
-                </button>
+              {/* Visualización elegante de archivos adjuntos */}
+              {(msg.fileUrl || msg.savedFileId) && (
+                <div className="flex flex-col gap-2 mt-3 p-3 bg-gray-900 rounded-xl border border-gray-700 w-full max-w-xs">
+                  {/* Icono según tipo de archivo */}
+                  {(() => {
+                    let file: SavedFile | undefined = undefined;
+                    if (msg.savedFileId) file = savedFiles.find(f => f.id === msg.savedFileId);
+                    const fileType = file?.fileType || msg.fileType || '';
+                    const fileName = file?.originalFileName || msg.fileUrl?.split('/').pop() || 'Archivo';
+                    let icon = null;
+                    if (fileType.startsWith('image/')) icon = <svg className="w-6 h-6 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 10a2 2 0 110-4 2 2 0 010 4zm0 0l4 4m0 0l4-4" /></svg>;
+                    else if (fileType.startsWith('video/')) icon = <svg className="w-6 h-6 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 10l4.553-2.276A2 2 0 0122 9.618v4.764a2 2 0 01-2.447 1.894L15 14M4 6h8a2 2 0 012 2v8a2 2 0 01-2 2H4a2 2 0 01-2-2V8a2 2 0 012-2z" /></svg>;
+                    else if (fileType === 'application/pdf') icon = <svg className="w-6 h-6 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" /></svg>;
+                    else icon = <svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>;
+                    return (
+                      <div className="flex items-center gap-3">
+                        {icon}
+                        <span className="font-semibold text-white truncate max-w-[180px]" title={fileName}>{fileName}</span>
+                        <span className="text-xs text-gray-400 ml-2">{fileType.split('/')[1] || fileType}</span>
+                      </div>
+                    );
+                  })()}
+                  {/* Acciones rápidas */}
+                  <div className="flex gap-2 mt-2 flex-wrap justify-start">
+                    {/* Ver */}
+                    {msg.savedFileId && (
+                      <button
+                        onClick={() => {
+                          const file = savedFiles.find(f => f.id === msg.savedFileId);
+                          if (file) {
+                            setActionLoading(msg.savedFileId || "");
+                            handleViewFile(file);
+                            setTimeout(() => setActionLoading(null), 1000);
+                          }
+                        }}
+                        className="px-3 py-1 rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-colors flex items-center gap-1"
+                        disabled={actionLoading === msg.savedFileId}
+                        title="Ver archivo"
+                      >
+                        {actionLoading === msg.savedFileId ? (
+                          <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"></path></svg>
+                        ) : (
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                        )}
+                        Ver
+                      </button>
+                    )}
+                    {/* Descargar */}
+                    {msg.savedFileId && (
+                      <button
+                        onClick={() => {
+                          const file = savedFiles.find(f => f.id === msg.savedFileId);
+                          if (file) {
+                            setActionLoading(msg.savedFileId || "");
+                            handleViewFile(file);
+                            setTimeout(() => setActionLoading(null), 1000);
+                          }
+                        }}
+                        className="px-3 py-1 rounded-lg bg-green-600 text-white hover:bg-green-700 transition-colors flex items-center gap-1"
+                        disabled={actionLoading === msg.savedFileId}
+                        title="Descargar archivo"
+                      >
+                        {actionLoading === msg.savedFileId ? (
+                          <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"></path></svg>
+                        ) : (
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                        )}
+                        Descargar
+                      </button>
+                    )}
+                    {/* Eliminar */}
+                    {msg.savedFileId && (
+                      <button
+                        onClick={() => {
+                          const file = savedFiles.find(f => f.id === msg.savedFileId);
+                          if (file) handleDeleteFile(file);
+                        }}
+                        className="px-3 py-1 rounded-lg bg-red-600 text-white hover:bg-red-700 transition-colors flex items-center gap-1"
+                        disabled={actionLoading === msg.savedFileId}
+                        title="Eliminar archivo"
+                      >
+                        {actionLoading === msg.savedFileId ? (
+                          <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"></path></svg>
+                        ) : (
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                        )}
+                        Eliminar
+                      </button>
+                    )}
+                  </div>
+                </div>
               )}
             </div>
           </div>
@@ -346,23 +519,22 @@ export default function ChatPage() {
         <div ref={chatEndRef} />
       </div>
 
-      {/* El input de archivo oculto que ambos botones de adjuntar usarán */}
       <input
         type="file"
         id="hiddenFileInput"
         ref={fileInputRef}
         onChange={handleFileSelect}
-        style={{ display: 'none' }} // Simplificado para asegurar la funcionalidad con label
-        multiple // Permitir selección múltiple
-        accept="*/*" // Aceptar cualquier tipo de archivo
+        style={{ display: 'none' }}
+        multiple
+        accept="*/*"
       />
 
       {selectedFiles.length > 0 && (
-        <div className="p-4 border-t border-gray-800 bg-black flex flex-col items-center">
-          <p className="text-white mb-2">Vista previa de archivos:</p>
-          <div className="flex flex-wrap gap-2 justify-center mb-4">
+        <div className="p-4 border-t border-gray-800 bg-gray-900 flex flex-col items-center">
+          <p className="text-white mb-4 text-lg font-medium">Vista previa de archivos:</p>
+          <div className="flex flex-wrap gap-4 justify-center mb-6">
             {selectedFiles.map((file, index) => (
-              <div key={file.name + index} className="relative flex flex-col items-center p-2 border border-gray-700 rounded-lg bg-gray-900">
+              <div key={file.name + index} className="relative flex flex-col items-center p-3 border border-gray-700 rounded-xl bg-gray-800 shadow-lg hover:shadow-xl transition-shadow">
                 {file.type.startsWith('image') && (
                   <img src={filePreviews[index]} alt={file.name} className="max-w-xs max-h-40 object-contain rounded-lg" />
                 )}
@@ -370,13 +542,13 @@ export default function ChatPage() {
                   <video controls src={filePreviews[index]} className="max-w-xs max-h-40 object-contain rounded-lg" />
                 )}
                 {!file.type.startsWith('image') && !file.type.startsWith('video') && (
-                  <div className="flex items-center justify-center w-32 h-32 bg-gray-800 rounded-lg">
+                  <div className="flex items-center justify-center w-32 h-32 bg-gray-700 rounded-lg">
                     <svg className="w-12 h-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                     </svg>
                   </div>
                 )}
-                <p className="text-gray-300 text-sm mt-1 truncate max-w-[200px]">{file.name}</p>
+                <p className="text-gray-300 text-sm mt-2 truncate max-w-[200px]">{file.name}</p>
                 <p className="text-gray-400 text-xs">{(file.size / 1024 / 1024).toFixed(2)} MB</p>
                 <button
                   type="button"
@@ -384,9 +556,11 @@ export default function ChatPage() {
                     setSelectedFiles(prev => prev.filter((_, i) => i !== index));
                     setFilePreviews(prev => prev.filter((_, i) => i !== index));
                   }}
-                  className="absolute top-0 right-0 p-1 text-red-400 hover:text-red-600 bg-gray-900 rounded-full"
+                  className="absolute top-2 right-2 p-1 text-red-400 hover:text-red-600 bg-gray-800 rounded-full hover:bg-gray-700 transition-colors"
                 >
-                  &times;
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
                 </button>
               </div>
             ))}
@@ -394,8 +568,11 @@ export default function ChatPage() {
           <form onSubmit={handleSend} className="w-full flex flex-col items-center">
             <label
               htmlFor="hiddenFileInput"
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors mb-4 cursor-pointer"
+              className="px-6 py-3 bg-blue-600 text-white rounded-xl font-medium hover:bg-blue-700 transition-colors mb-4 cursor-pointer flex items-center gap-2 shadow-lg hover:shadow-xl"
             >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" />
+              </svg>
               Adjuntar otro archivo
             </label>
             <input
@@ -403,20 +580,23 @@ export default function ChatPage() {
               value={comment}
               onChange={(e) => setComment(e.target.value)}
               placeholder="Añadir un comentario (opcional)"
-              className="w-full px-4 py-2 rounded-lg border border-gray-700 bg-black text-white focus:outline-none focus:ring-2 focus:ring-green-400 mb-4"
+              className="w-full px-4 py-3 rounded-xl border border-gray-700 bg-gray-800 text-white focus:outline-none focus:ring-2 focus:ring-blue-400 mb-4 shadow-lg"
             />
-            <div className="flex gap-2 justify-center">
+            <div className="flex gap-4 justify-center">
               <button
                 type="button"
                 onClick={() => { setSelectedFiles([]); setFilePreviews([]); setComment(""); }}
-                className="px-4 py-2 bg-red-600 text-white rounded-lg font-medium hover:bg-red-700 transition-colors"
+                className="px-6 py-3 bg-red-600 text-white rounded-xl font-medium hover:bg-red-700 transition-colors flex items-center gap-2 shadow-lg hover:shadow-xl"
                 disabled={uploadingFile}
               >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
                 Cancelar
               </button>
               <button
                 type="submit"
-                className="px-6 py-2 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 transition-colors flex items-center gap-2"
+                className="px-6 py-3 bg-green-600 text-white rounded-xl font-medium hover:bg-green-700 transition-colors flex items-center gap-2 shadow-lg hover:shadow-xl"
                 disabled={uploadingFile}
               >
                 {uploadingFile ? (
@@ -428,7 +608,12 @@ export default function ChatPage() {
                     Subiendo...
                   </>
                 ) : (
-                  'Enviar Archivos'
+                  <>
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                    </svg>
+                    Enviar Archivos
+                  </>
                 )}
               </button>
             </div>
@@ -439,12 +624,12 @@ export default function ChatPage() {
       {!selectedFiles.length && (
         <form
           onSubmit={handleSend}
-          className="flex gap-2 p-4 border-t border-gray-800 bg-black relative"
+          className="flex gap-2 p-4 border-t border-gray-800 bg-gray-900 relative"
         >
           <div className="relative w-full flex items-center gap-2">
             <label
               htmlFor="hiddenFileInput"
-              className="flex items-center justify-center w-10 h-10 rounded-full hover:bg-gray-800 cursor-pointer"
+              className="flex items-center justify-center w-12 h-12 rounded-full hover:bg-gray-800 cursor-pointer transition-colors"
               tabIndex={-1}
             >
               <svg className="w-6 h-6 text-gray-400 hover:text-white" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
@@ -456,17 +641,23 @@ export default function ChatPage() {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               placeholder="Escribe un mensaje..."
-              className="flex-1 px-4 py-2 rounded-lg border border-gray-700 bg-black text-white focus:outline-none focus:ring-2 focus:ring-green-400"
+              className="flex-1 px-4 py-3 rounded-xl border border-gray-700 bg-gray-800 text-white focus:outline-none focus:ring-2 focus:ring-green-400 shadow-lg"
             />
             <button
               type="submit"
-              className="px-6 py-2 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 transition-colors"
+              className="px-6 py-3 bg-green-600 text-white rounded-xl font-medium hover:bg-green-700 transition-colors flex items-center gap-2 shadow-lg hover:shadow-xl"
             >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+              </svg>
               Enviar
             </button>
           </div>
         </form>
       )}
+
+      {/* Snackbar de confirmación visual */}
+      {snackbar && <Snackbar message={snackbar} onClose={() => setSnackbar(null)} />}
     </main>
   );
 } 

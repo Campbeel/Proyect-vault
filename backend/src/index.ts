@@ -217,6 +217,24 @@ const toolDeclarations: Tool[] = [
           },
           required: []
         }
+      },
+      {
+        name: "deleteFile",
+        description: "Elimina un archivo guardado tanto de Pinata como del registro local.",
+        parameters: {
+          type: SchemaType.OBJECT,
+          properties: {
+            fileId: {
+              type: SchemaType.STRING,
+              description: "El ID o URL de IPFS del archivo a eliminar."
+            },
+            fileName: {
+              type: SchemaType.STRING,
+              description: "El nombre original del archivo a eliminar."
+            }
+          },
+          required: []
+        }
       }
     ]
   }
@@ -253,15 +271,14 @@ async function ejecutarTool(toolName: string, args: Record<string, any>): Promis
         const pinnedFiles = pinataResponse.data.rows;
         const currentlyPinnedFiles = pinnedFiles.filter((file: any) => !file.date_unpinned);
 
-        let responseToUser = "No se encontraron archivos fijados en tu cuenta de Pinata.";
+        let responseToUser = "No tienes archivos guardados por ahora. Puedes subir uno usando el botón correspondiente.";
         if (currentlyPinnedFiles && currentlyPinnedFiles.length > 0) {
           const detailedFiles = currentlyPinnedFiles.map((file: any) => ({
             id: `https://ipfs.io/ipfs/${file.ipfs_pin_hash}`,
-            originalFileName: file.metadata.name || file.ipfs_pin_hash, // Use name if available, else hash
-            // Add other relevant metadata if needed for download/preview decisions
+            originalFileName: file.metadata.name || file.ipfs_pin_hash,
           }));
-          const fileNames = detailedFiles.map((f: any) => `"${f.originalFileName}"`).join(", ");
-          responseToUser = `Se encontraron los siguientes archivos fijados en tu cuenta de Pinata: ${fileNames}.`;
+          const fileNamesList = detailedFiles.map((f: any) => `• ${f.originalFileName}`).join("\n");
+          responseToUser = `Estos son sus archivos guardados:\n${fileNamesList}\n\nPuedes previsualizar o eliminar cualquier archivo usando los botones del chat.`;
           return { status: "success", message: responseToUser, foundFiles: detailedFiles };
         } else {
           return { status: "info", message: responseToUser };
@@ -390,6 +407,33 @@ async function ejecutarTool(toolName: string, args: Record<string, any>): Promis
     case "confirmFileUpload": {
       const fileName = args.fileName as string;
       return { status: "success", message: `Confirmado: el archivo "${fileName}" ha sido subido exitosamente.` };
+    }
+    case "deleteFile": {
+      const { fileId, fileName } = args;
+      let fileToDelete = null;
+      if (fileId) {
+        fileToDelete = backendSavedFiles.find(f => f.id === fileId || f.ipfsUrl === fileId);
+      } else if (fileName) {
+        fileToDelete = backendSavedFiles.find(f => f.originalFileName === fileName);
+      }
+      if (!fileToDelete) {
+        return { status: "error", message: "No se encontró el archivo para eliminar." };
+      }
+      try {
+        const ipfsHash = fileToDelete.ipfsUrl.replace('ipfs://', '').replace('https://ipfs.io/ipfs/', '');
+        await axios.delete(`https://api.pinata.cloud/pinning/unpin/${ipfsHash}`, {
+          headers: { 'Authorization': `Bearer ${process.env.PINATA_JWT}` }
+        });
+        const index = backendSavedFiles.findIndex(f => f.id === fileToDelete.id);
+        if (index !== -1) {
+          backendSavedFiles.splice(index, 1);
+          await saveSavedFiles(backendSavedFiles);
+        }
+        return { status: "success", message: `El archivo "${fileToDelete.originalFileName}" fue eliminado correctamente.` };
+      } catch (error) {
+        console.error('Error al eliminar archivo:', error);
+        return { status: "error", message: "Error al eliminar el archivo." };
+      }
     }
     default: {
       throw new Error(`Función desconocida: ${toolName}`);
