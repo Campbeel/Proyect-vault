@@ -79,8 +79,74 @@ export default function ChatPage() {
   }, [isConnected, address, establishSessionKey]);
 
   useEffect(() => {
+    if (isConnected && address) {
+      axios.get(`http://localhost:5000/files?owner=${address}`)
+        .then(res => {
+          if (res.data && res.data.files) {
+            setSavedFiles(res.data.files);
+          }
+        })
+        .catch(() => {
+          setSavedFiles([]);
+        });
+    }
+  }, [isConnected, address]);
+
+  useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "auto" });
   }, [messages]);
+
+  useEffect(() => {
+    const lastMsg = messages[messages.length - 1];
+    if (lastMsg && lastMsg.sender === 'agente' && lastMsg.text) {
+      let fileName = null;
+      // Detectar frases comunes para ver o descargar archivos
+      if (lastMsg.text.includes('Preparando previsualización de')) {
+        const match = lastMsg.text.match(/Preparando previsualización de\s*"([^"]+)"/);
+        if (match) fileName = match[1];
+      } else if (lastMsg.text.includes('Puedes descargar')) {
+        const match = lastMsg.text.match(/Puedes descargar\s*"([^"]+)"/);
+        if (match) fileName = match[1];
+      } else if (/mu[ée]strame|necesito ver|quiero ver el contenido|quiero descargar/i.test(lastMsg.text)) {
+        // Buscar el nombre del archivo entre comillas o después de la frase
+        const match = lastMsg.text.match(/(?:mu[ée]strame|necesito ver|quiero ver el contenido|quiero descargar)[^\w\d]*"([^"]+)"|(?:mu[ée]strame|necesito ver|quiero ver el contenido|quiero descargar)[^\w\d]*([\w\d\.\-\s]+\.[a-zA-Z0-9]+)/i);
+        if (match) fileName = match[1] || match[2];
+        if (fileName) fileName = fileName.trim();
+      }
+      if (fileName) {
+        const file = savedFiles.find(f => f.originalFileName === fileName);
+        if (file) {
+          // Elimina mensajes innecesarios del agente si el archivo existe
+          const mensajesInnecesarios = [
+            'necesito su',
+            'nombre exacto',
+            'necesito saber si ya está subido a pinata',
+            '¿podrías confirmarme si el archivo',
+            'deberás subirlo usando la función uploadtopinata',
+            'primero debes hacerlo a través de la función uploadtopinata',
+            'puedo usar la función viewsavedfile',
+            'necesito el id o el nombre con el que fue guardado',
+            'necesito el id o el nombre',
+            '¿podrías proporcionarme alguno de estos datos?',
+            'puedo usar la función viewsavedfile para mostrarte una vista previa',
+            'puedo usar la función viewsavedfile para mostrarte el archivo',
+            'subido a pinata',
+            'subirlo usando la función uploadtopinata',
+            'usando la función uploadtopinata',
+            'viewsavedfile'
+          ];
+          const texto = lastMsg.text ?? '';
+          if (
+            texto &&
+            mensajesInnecesarios.some(frag => texto.toLowerCase().includes(frag.toLowerCase()))
+          ) {
+            setMessages(msgs => msgs.slice(0, -1));
+          }
+          handleViewFile(file);
+        }
+      }
+    }
+  }, [messages, savedFiles]);
 
   if (!isMounted) return null;
 
@@ -89,6 +155,23 @@ export default function ChatPage() {
     // Actualizada la condición para el envío
     if (!input.trim() && selectedFiles.length === 0) return;
 
+    // --- INTERCEPTAR PETICIONES DE ARCHIVO ANTES DE ENVIAR AL AGENTE ---
+    const peticionArchivo = /(mu[ée]strame|necesito ver|quiero ver el contenido|quiero descargar|descargar|ver)\s*"?([\w\d\.\-\s]+\.[a-zA-Z0-9]+)"?/i;
+    const match = input.match(peticionArchivo);
+    if (match) {
+      const fileName = match[2]?.trim();
+      if (fileName) {
+        const file = savedFiles.find(f => f.originalFileName === fileName);
+        if (file) {
+          handleViewFile(file);
+          setMessages((msgs) => [...msgs, { sender: "user", text: input }]);
+          setInput("");
+          return; // No enviar al agente
+        }
+      }
+    }
+
+    // Si no es petición de archivo, enviar mensaje al agente normalmente
     if (input.trim()) {
       setMessages((msgs) => [...msgs, { sender: "user", text: input }]);
       setInput("");
@@ -97,7 +180,6 @@ export default function ChatPage() {
           message: input,
           savedFilesContext: savedFiles 
         });
-        
         if (response.data.type === 'tool_calls') {
           // Manejar las llamadas a herramientas
           const toolResults = response.data.content;
@@ -107,22 +189,16 @@ export default function ChatPage() {
                 sender: "agente",
                 text: result.toolOutput.result.message,
               };
-
-              // Asegurar que savedFileId se establece para el mensaje del agente si fileId está presente
               if (result.toolOutput.result.fileId) {
                 agentMessage.savedFileId = result.toolOutput.result.fileId;
               }
-
-              // Si la salida de la herramienta incluye información completa del archivo para guardar
               if (result.toolOutput.result.fileId && result.toolOutput.result.ipfsUrl && result.toolOutput.result.originalFileName && result.toolOutput.result.fileType) {
                 const newSavedFile: SavedFile = {
-                  id: result.toolOutput.result.fileId, // Usando fileId del resultado de la herramienta como ID
+                  id: result.toolOutput.result.fileId,
                   ipfsUrl: result.toolOutput.result.ipfsUrl,
                   originalFileName: result.toolOutput.result.originalFileName,
                   fileType: result.toolOutput.result.fileType,
                 };
-                
-                // Añadir el archivo a savedFiles si no existe ya para que handleViewFile pueda encontrarlo
                 setSavedFiles(prev => {
                   if (!prev.some(f => f.id === newSavedFile.id)) {
                     return [...prev, newSavedFile];
@@ -130,7 +206,6 @@ export default function ChatPage() {
                   return prev;
                 });
               }
-              console.log("Agent Message (tool_calls):", agentMessage);
               setMessages((msgs) => [...msgs, agentMessage]);
             }
           }
@@ -139,11 +214,8 @@ export default function ChatPage() {
             sender: "agente",
             text: response.data.content
           };
-
-          // Si la respuesta de texto también incluye información del archivo para previsualizar
           if (response.data.savedFileId) {
             agentMessage.savedFileId = response.data.savedFileId;
-            // Opcionalmente, si fileType y fileUrl se proporcionan directamente para esta previsualización
             if (response.data.fileType) {
               agentMessage.fileType = response.data.fileType;
             }
@@ -151,87 +223,13 @@ export default function ChatPage() {
               agentMessage.fileUrl = response.data.fileUrl;
             }
           }
-          console.log("Agent Message (text):", agentMessage);
           setMessages((msgs) => [...msgs, agentMessage]);
         }
       } catch (error) {
-        console.error("Error al comunicarse con el agente:", error);
         setMessages((msgs) => [...msgs, { 
           sender: "agente", 
           text: "Lo siento, hubo un error al procesar tu mensaje. Por favor, intenta de nuevo." 
         }]);
-      }
-    }
-
-    // Nuevo bloque para manejar la subida de múltiples archivos
-    if (selectedFiles.length > 0) {
-      setUploadingFile(true);
-      const uploadPromises = selectedFiles.map(async (file) => {
-        setMessages((msgs) => [...msgs, { 
-          sender: "user", 
-          text: comment || `Subiendo archivo: ${file.name}`, 
-          fileType: file.type 
-        }]);
-        
-        try {
-          // Simplemente subimos el archivo sin cifrarlo
-          const formData = new FormData();
-          formData.append('file', file);
-          formData.append('originalFileName', file.name);
-          formData.append('fileType', file.type);
-          // Estos campos pueden ser necesarios en el backend, pero los valores son ficticios si no hay cifrado real
-          formData.append('encryptedFileKey', "dummy-key");
-          formData.append('nonce', nonce || "dummy-nonce");
-
-          const response = await axios.post('http://localhost:5000/upload', formData, {
-            headers: {
-              'Content-Type': 'multipart/form-data',
-            },
-          });
-
-          if (response.data.ipfsUrl) {
-            const newSavedFile: SavedFile = {
-              id: response.data.ipfsUrl, // Usar ipfsUrl como ID consistente con el backend
-              ipfsUrl: response.data.ipfsUrl,
-              originalFileName: file.name,
-              fileType: file.type,
-            };
-            setSavedFiles(prev => [...prev, newSavedFile]);
-
-            setMessages((msgs) => [...msgs, { 
-              sender: "agente", 
-              text: `Archivo "${file.name}" guardado exitosamente en IPFS.`, 
-              savedFileId: newSavedFile.id // Asegurar que savedFileId también sea el ipfsUrl
-            }]);
-          } else {
-            throw new Error("No se recibió un hash IPFS válido.");
-          }
-        } catch (error) {
-          console.error(`Error al subir archivo cifrado "${file.name}":`, error);
-          setMessages((msgs) => [...msgs, { 
-            sender: "agente", 
-            text: `Error al subir el archivo "${file.name}": ${error instanceof Error ? error.message : 'Error desconocido'}` 
-          }]);
-        }
-      });
-
-      try {
-        await Promise.all(uploadPromises);
-        setMessages((msgs) => [...msgs, { 
-          sender: "agente", 
-          text: "Todos los archivos han sido procesados." 
-        }]);
-      } catch (error) {
-        console.error("Error al procesar los archivos:", error);
-        setMessages((msgs) => [...msgs, { 
-          sender: "agente", 
-          text: "Hubo errores al procesar algunos archivos. Por favor, revisa los mensajes anteriores." 
-        }]);
-      } finally {
-        setSelectedFiles([]);
-        setFilePreviews([]);
-        setComment("");
-        setUploadingFile(false);
       }
     }
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -281,32 +279,13 @@ export default function ChatPage() {
     router.push("/");
   };
 
-  // Descarga el archivo usando fetch y Blob para forzar el nombre original
-  const handleDownloadFile = async () => {
-    if (!viewingFileUrl || !viewingFileName) return;
-    try {
-      const response = await fetch(viewingFileUrl);
-      if (!response.ok) throw new Error('No se pudo descargar el archivo');
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = viewingFileName;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      window.URL.revokeObjectURL(url);
-    } catch (error) {
-      alert('Error al descargar el archivo');
-    }
-  };
-
   // Eliminar archivo
   const handleDeleteFile = async (file: SavedFile) => {
     setActionLoading(file.id);
     try {
       await axios.post('http://localhost:5000/chat/agent', {
-        message: `Elimina el archivo ${file.originalFileName}`
+        message: `Elimina el archivo ${file.originalFileName}`,
+        owner: address || ""
       });
       setSavedFiles(prev => prev.filter(f => f.id !== file.id));
       setSnackbar(`Archivo "${file.originalFileName}" eliminado correctamente.`);
@@ -343,7 +322,24 @@ export default function ChatPage() {
               </h3>
               <div className="flex items-center gap-2">
                 <button
-                  onClick={handleDownloadFile}
+                  onClick={async () => {
+                    if (!viewingFileUrl || !viewingFileName) return;
+                    try {
+                      const response = await fetch(viewingFileUrl);
+                      if (!response.ok) throw new Error('No se pudo descargar el archivo');
+                      const blob = await response.blob();
+                      const url = window.URL.createObjectURL(blob);
+                      const a = document.createElement('a');
+                      a.href = url;
+                      a.download = viewingFileName;
+                      document.body.appendChild(a);
+                      a.click();
+                      a.remove();
+                      window.URL.revokeObjectURL(url);
+                    } catch (error) {
+                      alert('Error al descargar el archivo');
+                    }
+                  }}
                   className="text-white bg-blue-600 hover:bg-blue-700 transition-colors px-3 py-1 rounded-lg flex items-center gap-1"
                   title="Descargar archivo"
                 >
@@ -352,6 +348,25 @@ export default function ChatPage() {
                   </svg>
                   Descargar
                 </button>
+                {/* Botón Eliminar */}
+                {viewingFileName && (
+                  <button
+                    onClick={async () => {
+                      const file = savedFiles.find(f => f.originalFileName === viewingFileName);
+                      if (file) {
+                        await handleDeleteFile(file);
+                        handleCloseFileView();
+                      }
+                    }}
+                    className="text-white bg-red-600 hover:bg-red-700 transition-colors px-3 py-1 rounded-lg flex items-center gap-1"
+                    title="Eliminar archivo"
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                    Eliminar
+                  </button>
+                )}
                 <button
                   onClick={handleCloseFileView}
                   className="text-gray-400 hover:text-white transition-colors duration-200 p-2 hover:bg-gray-700 rounded-full"
@@ -405,21 +420,45 @@ export default function ChatPage() {
                   : "bg-gray-800 text-white mr-4"
               } ${msg.fileUrl || msg.savedFileId ? 'max-w-xs' : ''}`}
             >
-              {msg.text && (
-                // Si el mensaje contiene viñetas, mostrar como lista
-                msg.text.includes('• ')
-                  ? (
-                      <ul className="text-base list-disc pl-6">
-                        {msg.text.split('\n').map((line, idx) =>
-                          line.trim().startsWith('• ')
-                            ? <li key={idx}>{line.replace(/^• /, '')}</li>
-                            : line.trim() !== '' && <span key={idx}>{line}<br /></span>
-                        )}
-                      </ul>
-                    )
-                  : (
-                      <p className="text-base whitespace-pre-line">{msg.text}</p>
-                    )
+              {msg.sender === 'agente' && msg.text && msg.text.includes('/download-file?fileId=') ? (
+                (() => {
+                  // Extraer el fileId del enlace
+                  const match = msg.text.match(/\/download-file\?fileId=([^\s]+)/);
+                  const fileId = match ? decodeURIComponent(match[1]) : null;
+                  // Buscar el archivo en savedFiles
+                  const file = fileId ? savedFiles.find(f => f.ipfsUrl === fileId) : null;
+                  return (
+                    <div>
+                      {/* Solo mostrar el botón, no el link */}
+                      {file && (
+                        <button
+                          onClick={async () => {
+                            try {
+                              const response = await fetch(file.ipfsUrl.replace('ipfs://', 'https://gateway.pinata.cloud/ipfs/'));
+                              if (!response.ok) throw new Error('No se pudo descargar el archivo');
+                              const blob = await response.blob();
+                              const url = window.URL.createObjectURL(blob);
+                              const a = document.createElement('a');
+                              a.href = url;
+                              a.download = file.originalFileName;
+                              document.body.appendChild(a);
+                              a.click();
+                              a.remove();
+                              window.URL.revokeObjectURL(url);
+                            } catch (error) {
+                              alert('Error al descargar el archivo');
+                            }
+                          }}
+                          className="ml-4 px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors text-xs"
+                        >
+                          Descargar archivo
+                        </button>
+                      )}
+                    </div>
+                  );
+                })()
+              ) : (
+                msg.text && <span style={{ whiteSpace: 'pre-line' }}>{msg.text}</span>
               )}
               {/* Visualización elegante de archivos adjuntos */}
               {(msg.fileUrl || msg.savedFileId) && (

@@ -24,37 +24,41 @@ export default function Home() {
   const [newValue, setNewValue] = useState("");
   const [isWriting, setIsWriting] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
+  const [errorMsg, setErrorMsg] = useState("");
+  const [triedConnect, setTriedConnect] = useState(false);
 
-  useEffect(() => {
-    if (isConnected) {
-      router.push("/chat");
-    }
-  }, [isConnected, router]);
+  // useEffect(() => {
+  //   if (isConnected) {
+  //     router.push("/chat");
+  //   }
+  // }, [isConnected, router]);
 
   const handleGoToChat = async () => {
     if (!isConnected) {
       try {
         setIsConnecting(true);
+        setTriedConnect(true);
         await connect({ connector: injected() });
+        setIsConnecting(false);
+        // No redirigir aquí, esperar a que isConnected sea true
       } catch (error) {
         setIsConnecting(false);
+        setErrorMsg("Conexión rechazada o fallida. Por favor, inténtalo de nuevo.");
+        setTriedConnect(false);
         return;
       }
-      setIsConnecting(false);
+    } else {
+      router.push("/chat");
     }
-    router.push("/chat");
   };
 
-  const handleConnectWallet = async () => {
-    try {
-      setIsConnecting(true);
-      await connect({ connector: injected() });
-    } catch (error) {
-      // Puedes mostrar un mensaje de error si lo deseas
-    } finally {
-      setIsConnecting(false);
+  // Redirigir solo si el usuario intentó conectar y la conexión fue exitosa
+  useEffect(() => {
+    if (triedConnect && isConnected) {
+      router.push("/chat");
+      setTriedConnect(false);
     }
-  };
+  }, [isConnected, triedConnect, router]);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-black to-gray-900">
@@ -70,7 +74,7 @@ export default function Home() {
             <h1 className="text-2xl font-bold text-white">BlockChat</h1>
           </div>
           <button
-            onClick={handleConnectWallet}
+            onClick={handleGoToChat}
             disabled={isConnecting}
             className="px-6 py-2 bg-gradient-to-r from-green-500 to-blue-600 text-white rounded-xl font-medium hover:from-green-600 hover:to-blue-700 transition-all duration-300 shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
           >
@@ -197,6 +201,14 @@ export default function Home() {
           </div>
         </div>
       </footer>
+
+      {/* Popup de error */}
+      {errorMsg && (
+        <div className="fixed top-8 left-1/2 transform -translate-x-1/2 bg-red-600 text-white px-6 py-3 rounded-xl shadow-lg z-50 animate-fade-in flex items-center gap-4">
+          <span>{errorMsg}</span>
+          <button onClick={() => setErrorMsg("")} className="ml-4 text-white font-bold">X</button>
+        </div>
+      )}
     </div>
   );
 }

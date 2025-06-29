@@ -1,8 +1,14 @@
 [
   {
-    "id": "ipfs://QmPwkBZCJKDGmkHPiticGHYsn7RAJXiWs6YKeMJyGFi2fA",
-    "ipfsUrl": "ipfs://QmPwkBZCJKDGmkHPiticGHYsn7RAJXiWs6YKeMJyGFi2fA",
-    "originalFileName": "robot_guardando_archivos_500x500.png",
-    "fileType": "image/png"
+    "id": "ipfs://QmagsN6pPJvW8HpSzJ5dGnSGJCYrFWTRA6PwG9ybKPmD8R",
+    "ipfsUrl": "ipfs://QmagsN6pPJvW8HpSzJ5dGnSGJCYrFWTRA6PwG9ybKPmD8R",
+    "originalFileName": "24.2.1 EJEMPLO CONTROL 1.docx",
+    "fileType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+  },
+  {
+    "id": "ipfs://QmVakemz91ehfkgcceweef6t9",
+    "ipfsUrl": "ipfs://QmVakemz91ehfkgcceweef6t9",
+    "originalFileName": "24.2.1 EJEMPLO CONTROL 1.docx",
+    "fileType": "application/octet-stream"
   }
 ]

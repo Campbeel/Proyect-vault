@@ -233,7 +233,7 @@ const toolDeclarations: Tool[] = [
               description: "El nombre original del archivo a eliminar."
             }
           },
-          required: []
+          required: ["fileId", "fileName"]
         }
       }
     ]
@@ -254,6 +254,7 @@ const model = genAI.getGenerativeModel({
 async function ejecutarTool(toolName: string, args: Record<string, any>): Promise<any> {
   switch (toolName) {
     case "listAllPinnedFiles": {
+      // Eliminar referencias a Pinata y responder directamente
       const pinataJWT = process.env.PINATA_JWT;
       if (!pinataJWT) {
         throw new Error("PINATA_JWT no está configurado en el backend para listar todos los pines.");
@@ -267,25 +268,24 @@ async function ejecutarTool(toolName: string, args: Record<string, any>): Promis
             },
           }
         );
-        console.log('Respuesta cruda de Pinata:', pinataResponse.data);
         const pinnedFiles = pinataResponse.data.rows;
         const currentlyPinnedFiles = pinnedFiles.filter((file: any) => !file.date_unpinned);
 
-        let responseToUser = "No tienes archivos guardados por ahora. Puedes subir uno usando el botón correspondiente.";
+        let responseToUser = "No tienes archivos guardados por ahora.";
         if (currentlyPinnedFiles && currentlyPinnedFiles.length > 0) {
           const detailedFiles = currentlyPinnedFiles.map((file: any) => ({
             id: `https://ipfs.io/ipfs/${file.ipfs_pin_hash}`,
-            originalFileName: file.metadata.name || file.ipfs_pin_hash,
+            originalFileName: (file as any).metadata.name || (file as any).ipfs_pin_hash,
           }));
-          const fileNamesList = detailedFiles.map((f: any) => `• ${f.originalFileName}`).join("\n");
-          responseToUser = `Estos son sus archivos guardados:\n${fileNamesList}\n\nPuedes previsualizar o eliminar cualquier archivo usando los botones del chat.`;
+          const fileNamesList = detailedFiles.map((f: any) => `- ${f.originalFileName}`).join("\n");
+          responseToUser = `Estos son sus archivos guardados:\n${fileNamesList}\nPuedes previsualizar o eliminar cualquier archivo solicitándolo.`;
           return { status: "success", message: responseToUser, foundFiles: detailedFiles };
         } else {
           return { status: "info", message: responseToUser };
         }
       } catch (error) {
         console.error("Error al listar pines de Pinata:", error);
-        throw new Error(`Error al intentar listar archivos de Pinata: ${error instanceof Error ? error.message : 'Error desconocido'}`);
+        throw new Error(`Error al intentar listar archivos: ${error instanceof Error ? error.message : 'Error desconocido'}`);
       }
     }
     case "findFilesByExtension": {
@@ -357,13 +357,17 @@ async function ejecutarTool(toolName: string, args: Record<string, any>): Promis
         return { status: "error", message: `Para descargar un archivo, necesito el 'fileId' (URL de IPFS) o el 'fileName' del archivo. Por favor, proporciona al menos uno de ellos.` };
       }
 
-      const fileToDownload = backendSavedFiles.find(file => file.id === fileIdToDownload || file.originalFileName === fileNameToDownload);
+      // Buscar por fileId o por fileName
+      const fileToDownload = backendSavedFiles.find(file =>
+        (fileIdToDownload && (file.id === fileIdToDownload || file.ipfsUrl === fileIdToDownload)) ||
+        (fileNameToDownload && file.originalFileName === fileNameToDownload)
+      );
 
       if (fileToDownload) {
         // Enviamos la URL de descarga para que el frontend pueda construir el enlace
-        return { status: "success", message: `Puedes descargar "${fileToDownload.originalFileName}" desde el siguiente enlace: /download-file?fileId=${encodeURIComponent(fileToDownload.ipfsUrl)}.`, fileToDownload: { id: fileToDownload.id, originalFileName: fileToDownload.originalFileName, ipfsUrl: fileToDownload.ipfsUrl, fileType: fileToDownload.fileType } };
+        return { status: "success", message: `Puedes descargar \"${fileToDownload.originalFileName}\" desde el siguiente enlace: /download-file?fileId=${encodeURIComponent(fileToDownload.ipfsUrl)}.`, fileToDownload: { id: fileToDownload.id, originalFileName: fileToDownload.originalFileName, ipfsUrl: fileToDownload.ipfsUrl, fileType: fileToDownload.fileType } };
       } else {
-        return { status: "info", message: `Lo siento, el archivo "${fileNameToDownload || fileIdToDownload}" no fue encontrado entre los archivos guardados.` };
+        return { status: "info", message: `Lo siento, el archivo \"${fileNameToDownload || fileIdToDownload}\" no fue encontrado entre los archivos guardados.` };
       }
     }
     case "uploadToPinata": {
@@ -412,7 +416,7 @@ async function ejecutarTool(toolName: string, args: Record<string, any>): Promis
       const { fileId, fileName } = args;
       let fileToDelete = null;
       if (fileId) {
-        fileToDelete = backendSavedFiles.find(f => f.id === fileId || f.ipfsUrl === fileId);
+        fileToDelete = backendSavedFiles.find(f => (f.id === fileId || f.ipfsUrl === fileId));
       } else if (fileName) {
         fileToDelete = backendSavedFiles.find(f => f.originalFileName === fileName);
       }
@@ -555,6 +559,17 @@ const handleDownloadResponse = (req: Request, res: Response, next: (error?: any)
 
 // Conectando el middleware a la ruta de descarga
 app.get('/download-file', handleDownloadResponse);
+
+// Endpoint para listar archivos guardados (sin filtrar por owner)
+app.get('/files', (req, res) => {
+  if (backendSavedFiles.length > 0) {
+    const fileNamesList = backendSavedFiles.map((f: SavedFile) => `- ${f.originalFileName}`).join("\n");
+    const responseToUser = `Estos son sus archivos guardados:\n${fileNamesList}\nPuedes previsualizar o eliminar cualquier archivo solicitándolo.`;
+    res.status(200).json({ message: responseToUser });
+  } else {
+    res.status(200).json({ message: "No tienes archivos guardados por ahora." });
+  }
+});
 
 // Inicializar archivos guardados al iniciar el servidor
 async function startServer() {
