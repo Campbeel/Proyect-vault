@@ -10,5 +10,17 @@
     "ipfsUrl": "ipfs://QmVakemz91ehfkgcceweef6t9",
     "originalFileName": "24.2.1 EJEMPLO CONTROL 1.docx",
     "fileType": "application/octet-stream"
+  },
+  {
+    "id": "ipfs://QmaAU3kEejhkRQ9foSo9biPcE3nTwTqKLum38zqZMgCQ5h",
+    "ipfsUrl": "ipfs://QmaAU3kEejhkRQ9foSo9biPcE3nTwTqKLum38zqZMgCQ5h",
+    "originalFileName": "Beta_Holding_Calculado.xlsx",
+    "fileType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+  },
+  {
+    "id": "ipfs://QmR2vrJrZi63xTFKKZF2euU9qJGrgNESuJ5ye1zeLg1nTz",
+    "ipfsUrl": "ipfs://QmR2vrJrZi63xTFKKZF2euU9qJGrgNESuJ5ye1zeLg1nTz",
+    "originalFileName": "foto.jpg",
+    "fileType": "image/jpeg"
   }
 ]

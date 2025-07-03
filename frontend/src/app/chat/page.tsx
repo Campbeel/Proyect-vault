@@ -107,9 +107,9 @@ export default function ChatPage() {
       } else if (lastMsg.text.includes('Puedes descargar')) {
         const match = lastMsg.text.match(/Puedes descargar\s*"([^"]+)"/);
         if (match) fileName = match[1];
-      } else if (/mu[ée]strame|necesito ver|quiero ver el contenido|quiero descargar/i.test(lastMsg.text)) {
+      } else if (/mu[ée]strame|muestrame|necesito ver|quiero ver el contenido|quiero descargar/i.test(lastMsg.text)) {
         // Buscar el nombre del archivo entre comillas o después de la frase
-        const match = lastMsg.text.match(/(?:mu[ée]strame|necesito ver|quiero ver el contenido|quiero descargar)[^\w\d]*"([^"]+)"|(?:mu[ée]strame|necesito ver|quiero ver el contenido|quiero descargar)[^\w\d]*([\w\d\.\-\s]+\.[a-zA-Z0-9]+)/i);
+        const match = lastMsg.text.match(/(?:mu[ée]strame|muestrame|necesito ver|quiero ver el contenido|quiero descargar)[^\w\d]*"([^"]+)"|(?:mu[ée]strame|muestrame|necesito ver|quiero ver el contenido|quiero descargar)[^\w\d]*([\w\d\.\-\s]+\.[a-zA-Z0-9]+)/i);
         if (match) fileName = match[1] || match[2];
         if (fileName) fileName = fileName.trim();
       }
@@ -155,8 +155,43 @@ export default function ChatPage() {
     // Actualizada la condición para el envío
     if (!input.trim() && selectedFiles.length === 0) return;
 
+    // --- SUBIDA DE ARCHIVOS ---
+    if (selectedFiles.length > 0) {
+      setUploadingFile(true);
+      try {
+        for (const file of selectedFiles) {
+          const formData = new FormData();
+          formData.append('file', file, file.name);
+          formData.append('originalFileName', file.name);
+          formData.append('fileType', file.type);
+          // Puedes agregar más metadatos si lo necesitas
+
+          const response = await axios.post('http://localhost:5000/upload', formData);
+          if (response.data && response.data.ipfsUrl) {
+            // Notificar a Gemini (el backend/chatbot) que el archivo fue subido
+            await axios.post('http://localhost:5000/chat/agent', {
+              message: `He subido el archivo ${file.name}`,
+              fileUrl: response.data.ipfsUrl,
+              fileType: file.type,
+              owner: address || "",
+              savedFilesContext: savedFiles
+            });
+            setSnackbar(`Archivo "${file.name}" subido correctamente.`);
+          }
+        }
+        setSelectedFiles([]);
+        setFilePreviews([]);
+        setComment("");
+      } catch (error) {
+        setSnackbar('Error al subir el archivo.');
+      } finally {
+        setUploadingFile(false);
+      }
+      return;
+    }
+
     // --- INTERCEPTAR PETICIONES DE ARCHIVO ANTES DE ENVIAR AL AGENTE ---
-    const peticionArchivo = /(mu[ée]strame|necesito ver|quiero ver el contenido|quiero descargar|descargar|ver)\s*"?([\w\d\.\-\s]+\.[a-zA-Z0-9]+)"?/i;
+    const peticionArchivo = /(mu[ée]strame|muestrame|necesito ver|quiero ver el contenido|quiero descargar|descargar|ver)\s*"?([\w\d\.\-\s]+\.[a-zA-Z0-9]+)"?/i;
     const match = input.match(peticionArchivo);
     if (match) {
       const fileName = match[2]?.trim();
@@ -510,12 +545,27 @@ export default function ChatPage() {
                     {/* Descargar */}
                     {msg.savedFileId && (
                       <button
-                        onClick={() => {
+                        onClick={async () => {
                           const file = savedFiles.find(f => f.id === msg.savedFileId);
                           if (file) {
                             setActionLoading(msg.savedFileId || "");
-                            handleViewFile(file);
-                            setTimeout(() => setActionLoading(null), 1000);
+                            try {
+                              const response = await fetch(file.ipfsUrl.replace('ipfs://', 'https://gateway.pinata.cloud/ipfs/'));
+                              if (!response.ok) throw new Error('No se pudo descargar el archivo');
+                              const blob = await response.blob();
+                              const url = window.URL.createObjectURL(blob);
+                              const a = document.createElement('a');
+                              a.href = url;
+                              a.download = file.originalFileName;
+                              document.body.appendChild(a);
+                              a.click();
+                              a.remove();
+                              window.URL.revokeObjectURL(url);
+                            } catch (error) {
+                              alert('Error al descargar el archivo');
+                            } finally {
+                              setActionLoading(null);
+                            }
                           }
                         }}
                         className="px-3 py-1 rounded-lg bg-green-600 text-white hover:bg-green-700 transition-colors flex items-center gap-1"
