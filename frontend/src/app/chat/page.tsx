@@ -402,15 +402,15 @@ export default function ChatPage() {
                     Eliminar
                   </button>
                 )}
-                <button
-                  onClick={handleCloseFileView}
+              <button
+                onClick={handleCloseFileView}
                   className="text-gray-400 hover:text-white transition-colors duration-200 p-2 hover:bg-gray-700 rounded-full"
                   title="Cerrar previsualización"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
               </div>
             </div>
             <div className="flex-1 flex items-center justify-center p-4 bg-gray-900">
@@ -581,10 +581,10 @@ export default function ChatPage() {
                       </button>
                     )}
                     {/* Eliminar */}
-                    {msg.savedFileId && (
-                      <button
-                        onClick={() => {
-                          const file = savedFiles.find(f => f.id === msg.savedFileId);
+              {msg.savedFileId && (
+                <button 
+                  onClick={() => {
+                    const file = savedFiles.find(f => f.id === msg.savedFileId);
                           if (file) handleDeleteFile(file);
                         }}
                         className="px-3 py-1 rounded-lg bg-red-600 text-white hover:bg-red-700 transition-colors flex items-center gap-1"
@@ -597,7 +597,7 @@ export default function ChatPage() {
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
                         )}
                         Eliminar
-                      </button>
+                </button>
                     )}
                   </div>
                 </div>

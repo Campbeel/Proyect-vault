@@ -6,6 +6,8 @@ import axios from 'axios';
 import { GoogleGenerativeAI, Tool, FunctionDeclaration, SchemaType } from '@google/generative-ai';
 import fs from 'fs/promises';
 import path from 'path';
+import CryptoJS from 'crypto-js';
+image.pngimport fsSync from 'fs'; // Para leer README de forma síncrona
 
 interface SavedFile {
   id: string;
@@ -17,6 +19,67 @@ interface SavedFile {
 let backendSavedFiles: SavedFile[] = [];
 
 const SAVED_FILES_PATH = path.join(__dirname, 'saved_files.json');
+
+// --- Conversaciones cifradas ---
+
+const CONVERSATIONS_PATH = path.join(__dirname, 'conversations.json');
+
+interface MensajeConversacion {
+  rol: 'usuario' | 'gemini';
+  mensaje: string;
+}
+
+interface Conversacion {
+  id: string; // timestamp o UUID
+  mensajes: MensajeConversacion[];
+}
+
+interface ConversacionPorWallet {
+  wallet: string;
+  conversaciones: Conversacion[];
+}
+
+// Leer conversaciones desde disco
+async function loadConversations(): Promise<ConversacionPorWallet[]> {
+  try {
+    const data = await fs.readFile(CONVERSATIONS_PATH, 'utf8');
+    return JSON.parse(data);
+  } catch (error: any) {
+    if (error.code === 'ENOENT') {
+      return [];
+    }
+    console.error('Error al cargar conversaciones:', error);
+    return [];
+  }
+}
+
+// Guardar conversaciones en disco
+async function saveConversations(convs: ConversacionPorWallet[]): Promise<void> {
+  try {
+    await fs.writeFile(CONVERSATIONS_PATH, JSON.stringify(convs, null, 2), 'utf8');
+  } catch (error) {
+    console.error('Error al guardar conversaciones:', error);
+  }
+}
+
+// Derivar clave AES desde la wallet (SHA-256)
+function deriveKeyFromWallet(wallet: string): string {
+  return CryptoJS.SHA256(wallet.toLowerCase()).toString();
+}
+
+// Cifrar mensajes
+function encryptMessages(messages: MensajeConversacion[], key: string): string {
+  return CryptoJS.AES.encrypt(JSON.stringify(messages), key).toString();
+}
+
+// Descifrar mensajes
+function decryptMessages(ciphertext: string, key: string): MensajeConversacion[] {
+  const bytes = CryptoJS.AES.decrypt(ciphertext, key);
+  const decrypted = bytes.toString(CryptoJS.enc.Utf8);
+  return JSON.parse(decrypted);
+}
+
+// --- Endpoints de conversaciones ---
 
 declare global {
   namespace Express {
@@ -32,6 +95,57 @@ dotenv.config();
 
 const app: express.Application = express();
 const port = process.env.PORT || 5000;
+
+// --- Endpoints de conversaciones ---
+app.post('/conversations', express.json(), async (req: Request, res: Response) => {
+  const { wallet, mensajes } = req.body;
+  if (!wallet || !mensajes || !Array.isArray(mensajes)) {
+    res.status(400).json({ error: 'Faltan datos requeridos (wallet, mensajes).' });
+    return;
+  }
+  const key = deriveKeyFromWallet(wallet);
+  const convs = await loadConversations();
+  let userConv = convs.find(c => c.wallet.toLowerCase() === wallet.toLowerCase());
+  const nuevaConversacion: Conversacion = {
+    id: new Date().toISOString(),
+    mensajes: [], // se guarda cifrado
+  };
+  const encrypted = encryptMessages(mensajes, key);
+  // Guardar como string cifrado en vez de array
+  (nuevaConversacion as any).mensajes = encrypted;
+  if (!userConv) {
+    convs.push({ wallet: wallet.toLowerCase(), conversaciones: [nuevaConversacion] });
+  } else {
+    userConv.conversaciones.push(nuevaConversacion);
+  }
+  await saveConversations(convs);
+  res.status(200).json({ message: 'Conversación guardada exitosamente.' });
+});
+
+app.get('/conversations/:wallet', async (req: Request, res: Response) => {
+  const { wallet } = req.params;
+  if (!wallet) {
+    res.status(400).json({ error: 'Wallet requerida.' });
+    return;
+  }
+  const key = deriveKeyFromWallet(wallet);
+  const convs = await loadConversations();
+  const userConv = convs.find(c => c.wallet.toLowerCase() === wallet.toLowerCase());
+  if (!userConv) {
+    res.status(404).json({ error: 'No hay conversaciones para esta wallet.' });
+    return;
+  }
+  // Descifrar cada conversación
+  const conversacionesDescifradas = userConv.conversaciones.map(conv => {
+    try {
+      const mensajes = decryptMessages((conv as any).mensajes, key);
+      return { id: conv.id, mensajes };
+    } catch (e) {
+      return { id: conv.id, mensajes: [] };
+    }
+  });
+  res.status(200).json({ conversaciones: conversacionesDescifradas });
+});
 
 async function loadSavedFiles(): Promise<SavedFile[]> {
   try {
@@ -447,34 +561,56 @@ async function ejecutarTool(toolName: string, args: Record<string, any>): Promis
 
 // Endpoint para la interacción con el agente Gemini
 app.post('/chat/agent', express.json(), async (req: Request, res: Response): Promise<void> => {
-  const { message } = req.body;
+  const { message, wallet } = req.body;
 
-  if (!message) {
-    res.status(400).json({ error: 'No se proporcionó ningún mensaje.' });
+  if (!message || !wallet) {
+    res.status(400).json({ error: 'No se proporcionó mensaje o wallet.' });
     return;
   }
 
-  console.log('Mensaje recibido del frontend:', message);
+  // 1. Leer prompt base
+  const promptPath = path.join(__dirname, 'agent', 'prompt', 'README.md');
+  let promptBase = '';
+  try {
+    promptBase = fsSync.readFileSync(promptPath, 'utf8');
+  } catch (e) {
+    promptBase = 'Eres un asistente para gestión de archivos en bóveda blockchain.';
+  }
+
+  // 2. Leer historial completo de la wallet
+  const key = deriveKeyFromWallet(wallet);
+  const convs = await loadConversations();
+  const userConv = convs.find(c => c.wallet.toLowerCase() === wallet.toLowerCase());
+  let historial = '';
+  if (userConv && userConv.conversaciones.length > 0) {
+    // Tomar todas las conversaciones y formatearlas
+    historial = userConv.conversaciones.map(conv =>
+      conv.mensajes ? decryptMessages((conv as any).mensajes, key).map(m => `${m.rol === 'usuario' ? 'Usuario' : 'Gemini'}: ${m.mensaje}`).join('\n') : ''
+    ).join('\n');
+  }
+
+  // 3. Leer la última lista de archivos guardados
+  let archivosGuardados = '';
+  if (backendSavedFiles.length > 0) {
+    archivosGuardados = 'Archivos guardados actualmente:\n' + backendSavedFiles.map(f => `- ${f.originalFileName}`).join('\n');
+  } else {
+    archivosGuardados = 'No hay archivos guardados actualmente.';
+  }
+
+  // 4. Construir el contexto
+  const contexto = `${promptBase}\n\n---\n\n${historial}\n\n---\n\n${archivosGuardados}\n\n---\n\nUsuario: ${message}`;
 
   try {
-    console.log('Enviando mensaje a Gemini...');
-    const chat = model.startChat({
-      tools: toolDeclarations,
-    });
-    const result = await chat.sendMessage(message);
+    const chat = model.startChat({ tools: toolDeclarations });
+    const result = await chat.sendMessage(contexto);
     const response = result.response;
-    console.log('Respuesta completa de Gemini (result):', result);
-
     const toolCalls = response.functionCalls();
 
     if (toolCalls && toolCalls.length > 0) {
-      console.log('Gemini solicitó llamadas a funciones:', toolCalls);
       const toolResults: any[] = [];
-
       for (const toolCall of toolCalls) {
         const toolName = toolCall.name;
         const args = toolCall.args;
-
         try {
           const toolResult = await ejecutarTool(toolName, args);
           toolResults.push({
@@ -492,7 +628,6 @@ app.post('/chat/agent', express.json(), async (req: Request, res: Response): Pro
           });
         }
       }
-
       const followup = await chat.sendMessage(
         toolResults.map(toolResult => ({
           functionResponse: {
@@ -501,11 +636,8 @@ app.post('/chat/agent', express.json(), async (req: Request, res: Response): Pro
           }
         }))
       );
-      console.log("Resultado final:", followup.response.text());
       res.json({ type: 'tool_calls', content: toolResults });
-
     } else {
-      console.log('Texto de la respuesta de Gemini:', response.text());
       res.json({ type: 'text', content: response.text() });
     }
   } catch (error) {

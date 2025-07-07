@@ -1,0 +1,11 @@
+[
+  {
+    "wallet": "0x1234abcd5678efgh",
+    "conversaciones": [
+      {
+        "id": "2025-07-07T01:49:48.035Z",
+        "mensajes": "U2FsdGVkX18zc0r6RtfpJRWfgHI4m0V7R3stdQcklMHmhp7yBke3GRBLy0ck2gJu3f9jyeshE32sbkIXoXNoagWAs9Io+LVqQFiJ34zcLYbrqJYVvM9Qz/T/RNCU8xmr8hG316AcjfAEL0Zbipo7vu/mN4keqlgVLmhL+njyv4S//47ljXp2+gYIobfPZBzX8XGJS/bwcb+VXvu8fTw41g=="
+      }
+    ]
+  }
+]

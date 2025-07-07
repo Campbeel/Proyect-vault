@@ -20,7 +20,7 @@ export default function Web3ModalProvider({ children, cookies }: { children: Rea
   const initialState = cookieToInitialState(wagmiConfig, cookies);
 
   useEffect(() => {
-    createWeb3Modal({ wagmiConfig, projectId, chains });
+    createWeb3Modal({ wagmiConfig, projectId });
   }, []);
 
   return (
