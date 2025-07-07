@@ -1,31 +1,22 @@
 "use client";
-import React, { type ReactNode, useEffect } from "react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { WagmiProvider, cookieToInitialState } from "wagmi";
-import { createWeb3Modal, defaultWagmiConfig } from '@web3modal/wagmi/react';
-import { mainnet, polygon, arbitrum, optimism } from 'wagmi/chains';
+import React, { type ReactNode } from "react";
+import { WagmiConfig, createConfig } from "wagmi";
+import { mainnet } from "wagmi/chains";
+import { injected } from "wagmi/connectors";
+import { createPublicClient, http } from "viem";
 
-const projectId = 'blockchat-web3modal-demo';
-const metadata = {
-  name: 'BlockChat',
-  description: 'Chat seguro con blockchain',
-  url: 'http://localhost:3000',
-  icons: [''],
-};
-const chains = [mainnet, polygon, arbitrum, optimism];
-const wagmiConfig = defaultWagmiConfig({ chains, projectId, metadata });
-const queryClient = new QueryClient();
+const config = createConfig({
+  connectors: [injected()],
+  chains: [mainnet],
+  client({ chain }) {
+    return createPublicClient({ chain, transport: http() });
+  },
+});
 
-export default function Web3ModalProvider({ children, cookies }: { children: ReactNode; cookies: string | null }) {
-  const initialState = cookieToInitialState(wagmiConfig, cookies);
-
-  useEffect(() => {
-    createWeb3Modal({ wagmiConfig, projectId });
-  }, []);
-
+export default function Web3Provider({ children }: { children: ReactNode }) {
   return (
-    <WagmiProvider config={wagmiConfig} initialState={initialState}>
-      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
-    </WagmiProvider>
+    <WagmiConfig config={config}>
+      {children}
+    </WagmiConfig>
   );
 } 

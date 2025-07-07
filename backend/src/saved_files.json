@@ -22,5 +22,11 @@
     "ipfsUrl": "ipfs://QmR2vrJrZi63xTFKKZF2euU9qJGrgNESuJ5ye1zeLg1nTz",
     "originalFileName": "foto.jpg",
     "fileType": "image/jpeg"
+  },
+  {
+    "id": "ipfs://Qma92XojQVsxmW5RUrxRTZoPmu84FDDLPH8UK3UqHGJNyU",
+    "ipfsUrl": "ipfs://Qma92XojQVsxmW5RUrxRTZoPmu84FDDLPH8UK3UqHGJNyU",
+    "originalFileName": "07_ruido_y_filtrado_1.1-1.pdf",
+    "fileType": "application/pdf"
   }
 ]

@@ -7,7 +7,7 @@ import { GoogleGenerativeAI, Tool, FunctionDeclaration, SchemaType } from '@goog
 import fs from 'fs/promises';
 import path from 'path';
 import CryptoJS from 'crypto-js';
-image.pngimport fsSync from 'fs'; // Para leer README de forma síncrona
+import fsSync from 'fs'; // Para leer README de forma síncrona
 
 interface SavedFile {
   id: string;
@@ -235,415 +235,107 @@ app.post('/upload', upload.single('file'), async (req, res) => {
   }
 });
 
-// Configuración de Gemini
-const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY || '');
-
-const toolDeclarations: Tool[] = [
-  {
-    functionDeclarations: [
-      {
-        name: "uploadToPinata",
-        description: "Sube un archivo a IPFS usando Pinata.",
-        parameters: {
-          type: SchemaType.OBJECT,
-          properties: {
-            fileContent: {
-              type: SchemaType.STRING,
-              description: "Contenido del archivo en base64 o texto plano"
-            },
-            fileName: {
-              type: SchemaType.STRING,
-              description: "Nombre del archivo, incluyendo extensión"
-            }
-          },
-          required: ["fileContent", "fileName"]
-        }
-      },
-      {
-        name: "listAllPinnedFiles",
-        description: "Lista todos los archivos fijados por la aplicación en Pinata.",
-        parameters: {
-          type: SchemaType.OBJECT,
-          properties: {},
-          required: []
-        }
-      },
-      {
-        name: "findFilesByExtension",
-        description: "Busca archivos fijados en Pinata por una extensión específica.",
-        parameters: {
-          type: SchemaType.OBJECT,
-          properties: {
-            extension: {
-              type: SchemaType.STRING,
-              description: "La extensión del archivo a buscar (por ejemplo, 'pdf', 'jpg', 'txt')."
-            }
-          },
-          required: ["extension"]
-        }
-      },
-      {
-        name: "confirmFileUpload",
-        description: "Confirma que un archivo ha sido subido exitosamente.",
-        parameters: {
-          type: SchemaType.OBJECT,
-          properties: {
-            fileName: {
-              type: SchemaType.STRING,
-              description: "El nombre del archivo que ha sido subido."
-            }
-          },
-          required: ["fileName"]
-        }
-      },
-      {
-        name: "viewSavedFile",
-        description: "Previsualiza un archivo guardado por su ID o nombre.",
-        parameters: {
-          type: SchemaType.OBJECT,
-          properties: {
-            fileId: {
-              type: SchemaType.STRING,
-              description: "El ID del archivo (URL de IPFS)."
-            },
-            fileName: {
-              type: SchemaType.STRING,
-              description: "El nombre del archivo a previsualizar."
-            }
-          },
-          required: []
-        }
-      },
-      {
-        name: "downloadFile",
-        description: "Prepara un archivo guardado para su descarga por su ID o nombre.",
-        parameters: {
-          type: SchemaType.OBJECT,
-          properties: {
-            fileId: {
-              type: SchemaType.STRING,
-              description: "El ID del archivo (URL de IPFS)."
-            },
-            fileName: {
-              type: SchemaType.STRING,
-              description: "El nombre del archivo a descargar."
-            }
-          },
-          required: []
-        }
-      },
-      {
-        name: "deleteFile",
-        description: "Elimina un archivo guardado tanto de Pinata como del registro local.",
-        parameters: {
-          type: SchemaType.OBJECT,
-          properties: {
-            fileId: {
-              type: SchemaType.STRING,
-              description: "El ID o URL de IPFS del archivo a eliminar."
-            },
-            fileName: {
-              type: SchemaType.STRING,
-              description: "El nombre original del archivo a eliminar."
-            }
-          },
-          required: ["fileId", "fileName"]
-        }
-      }
-    ]
-  }
-];
-
-const model = genAI.getGenerativeModel({
-  model: "gemini-2.0-flash",
-  generationConfig: {
-    temperature: 0.7,
-    topP: 0.8,
-    topK: 40
-  },
-  tools: toolDeclarations
-});
-
-// Nueva función para ejecutar herramientas
-async function ejecutarTool(toolName: string, args: Record<string, any>): Promise<any> {
-  switch (toolName) {
-    case "listAllPinnedFiles": {
-      // Eliminar referencias a Pinata y responder directamente
-      const pinataJWT = process.env.PINATA_JWT;
-      if (!pinataJWT) {
-        throw new Error("PINATA_JWT no está configurado en el backend para listar todos los pines.");
-      }
-      try {
-        const pinataResponse = await axios.get(
-          'https://api.pinata.cloud/data/pinList',
-          {
-            headers: {
-              'Authorization': `Bearer ${pinataJWT}`,
-            },
-          }
-        );
-        const pinnedFiles = pinataResponse.data.rows;
-        const currentlyPinnedFiles = pinnedFiles.filter((file: any) => !file.date_unpinned);
-
-        let responseToUser = "No tienes archivos guardados por ahora.";
-        if (currentlyPinnedFiles && currentlyPinnedFiles.length > 0) {
-          const detailedFiles = currentlyPinnedFiles.map((file: any) => ({
-            id: `https://ipfs.io/ipfs/${file.ipfs_pin_hash}`,
-            originalFileName: (file as any).metadata.name || (file as any).ipfs_pin_hash,
-          }));
-          const fileNamesList = detailedFiles.map((f: any) => `- ${f.originalFileName}`).join("\n");
-          responseToUser = `Estos son sus archivos guardados:\n${fileNamesList}\nPuedes previsualizar o eliminar cualquier archivo solicitándolo.`;
-          return { status: "success", message: responseToUser, foundFiles: detailedFiles };
-        } else {
-          return { status: "info", message: responseToUser };
-        }
-      } catch (error) {
-        console.error("Error al listar pines de Pinata:", error);
-        throw new Error(`Error al intentar listar archivos: ${error instanceof Error ? error.message : 'Error desconocido'}`);
-      }
-    }
-    case "findFilesByExtension": {
-      const extension = args.extension as string;
-      const pinataJWT = process.env.PINATA_JWT;
-      if (!pinataJWT) {
-        throw new Error("PINATA_JWT no está configurado en el backend para buscar archivos por extensión.");
-      }
-      try {
-        const pinataResponse = await axios.get(
-          'https://api.pinata.cloud/data/pinList',
-          {
-            headers: {
-              'Authorization': `Bearer ${pinataJWT}`,
-            },
-          }
-        );
-        const pinnedFiles = pinataResponse.data.rows;
-        const matchingFiles = pinnedFiles.filter((file: any) =>
-          file.metadata && file.metadata.name && file.metadata.name.toLowerCase().endsWith(`.${extension.toLowerCase()}`)
-        );
-        if (matchingFiles.length > 0) {
-          const mergedFiles = matchingFiles.map((file: any) => {
-            const isPreviewable = backendSavedFiles.some(savedFile => savedFile.id === `https://ipfs.io/ipfs/${file.ipfs_pin_hash}`);
-            return {
-              id: `https://ipfs.io/ipfs/${file.ipfs_pin_hash}`,
-              originalFileName: file.metadata.name,
-              isPreviewable: isPreviewable
-            };
-          });
-          return { status: "success", message: `He encontrado ${mergedFiles.length} archivos con la extensión "${extension}".`, foundFiles: mergedFiles };
-        } else {
-          return { status: "info", message: `No se encontraron archivos con la extensión "${extension}".` };
-        }
-      } catch (error) {
-        console.error(`Error al buscar archivos con extensión .${extension} en Pinata:`, error);
-        throw new Error(`Error al intentar buscar archivos por extensión: ${error instanceof Error ? error.message : 'Error desconocido'}`);
-      }
-    }
-    case "viewSavedFile": {
-      const { fileId, fileName } = args;
-      let fileToView: SavedFile | undefined;
-
-      if (fileId) {
-        fileToView = backendSavedFiles.find(f => f.id === fileId);
-      } else if (fileName) {
-        fileToView = backendSavedFiles.find(f => f.originalFileName === fileName);
-      }
-
-      if (fileToView) {
-        console.log("File to view details:", fileToView);
-        const previewUrl = fileToView.ipfsUrl.replace('ipfs://', 'https://gateway.pinata.cloud/ipfs/');
-        return {
-          message: `Preparando previsualización de "${fileToView.originalFileName}". Por favor, haz clic en el botón 'Ver archivo' debajo del mensaje del agente para verlo.`, 
-          fileId: fileToView.id, // This is savedFileId in the frontend
-          ipfsUrl: previewUrl,
-          originalFileName: fileToView.originalFileName,
-          fileType: fileToView.fileType
-        };
-      } else {
-        return { message: `Lo siento, no pude encontrar el archivo '${fileName || fileId}' para previsualizar.` };
-      }
-    }
-    case "downloadFile": {
-      const fileIdToDownload = args.fileId as string;
-      const fileNameToDownload = args.fileName as string;
-
-      if (!fileIdToDownload && !fileNameToDownload) {
-        return { status: "error", message: `Para descargar un archivo, necesito el 'fileId' (URL de IPFS) o el 'fileName' del archivo. Por favor, proporciona al menos uno de ellos.` };
-      }
-
-      // Buscar por fileId o por fileName
-      const fileToDownload = backendSavedFiles.find(file =>
-        (fileIdToDownload && (file.id === fileIdToDownload || file.ipfsUrl === fileIdToDownload)) ||
-        (fileNameToDownload && file.originalFileName === fileNameToDownload)
-      );
-
-      if (fileToDownload) {
-        // Enviamos la URL de descarga para que el frontend pueda construir el enlace
-        return { status: "success", message: `Puedes descargar \"${fileToDownload.originalFileName}\" desde el siguiente enlace: /download-file?fileId=${encodeURIComponent(fileToDownload.ipfsUrl)}.`, fileToDownload: { id: fileToDownload.id, originalFileName: fileToDownload.originalFileName, ipfsUrl: fileToDownload.ipfsUrl, fileType: fileToDownload.fileType } };
-      } else {
-        return { status: "info", message: `Lo siento, el archivo \"${fileNameToDownload || fileIdToDownload}\" no fue encontrado entre los archivos guardados.` };
-      }
-    }
-    case "uploadToPinata": {
-      const fileContent = args.fileContent as string;
-      const fileName = args.fileName as string;
-
-      const pinataJWT = process.env.PINATA_JWT;
-      if (!pinataJWT) {
-        throw new Error("PINATA_JWT no está configurado en el backend para subir archivos.");
-      }
-
-      try {
-        // Aquí deberías subir el contenido del archivo a Pinata.
-        // Dado que el frontend es el que maneja la subida, esta función de herramienta
-        // es más una confirmación o para futuros usos donde Gemini inicie la subida.
-        // Por ahora, asumiremos que si Gemini llama a esto, es para confirmar que el archivo existe.
-        // Si realmente necesitas subir el archivo desde Gemini, el `fileContent` debería ser un Buffer o Blob.
-        // Esto es un placeholder para la lógica de subida real si Gemini crea el archivo.
-
-        // Simulamos una subida y generamos un IPFS URL temporal para fines de demostración de la herramienta.
-        const ipfsHash = `QmV${Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15)}`; // Simula un hash IPFS
-        const ipfsUrl = `ipfs://${ipfsHash}`;
-
-        const newSavedFile: SavedFile = {
-          id: ipfsUrl,
-          ipfsUrl,
-          originalFileName: fileName,
-          fileType: 'application/octet-stream', // Tipo genérico para la simulación
-        };
-        backendSavedFiles.push(newSavedFile);
-        await saveSavedFiles(backendSavedFiles);
-
-        console.log('Archivo subido a Pinata (simulado):', newSavedFile.originalFileName);
-
-        return { status: "success", message: `Archivo subido exitosamente (simulado) a IPFS: ${ipfsUrl}` };
-      } catch (error) {
-        console.error('Error al subir archivo a Pinata (simulado):', error);
-        throw new Error(`Error al subir archivo a Pinata (simulado): ${error instanceof Error ? error.message : 'Error desconocido'}`);
-      }
-    }
-    case "confirmFileUpload": {
-      const fileName = args.fileName as string;
-      return { status: "success", message: `Confirmado: el archivo "${fileName}" ha sido subido exitosamente.` };
-    }
-    case "deleteFile": {
-      const { fileId, fileName } = args;
-      let fileToDelete = null;
-      if (fileId) {
-        fileToDelete = backendSavedFiles.find(f => (f.id === fileId || f.ipfsUrl === fileId));
-      } else if (fileName) {
-        fileToDelete = backendSavedFiles.find(f => f.originalFileName === fileName);
-      }
-      if (!fileToDelete) {
-        return { status: "error", message: "No se encontró el archivo para eliminar." };
-      }
-      try {
-        const ipfsHash = fileToDelete.ipfsUrl.replace('ipfs://', '').replace('https://ipfs.io/ipfs/', '');
-        await axios.delete(`https://api.pinata.cloud/pinning/unpin/${ipfsHash}`, {
-          headers: { 'Authorization': `Bearer ${process.env.PINATA_JWT}` }
-        });
-        const index = backendSavedFiles.findIndex(f => f.id === fileToDelete.id);
-        if (index !== -1) {
-          backendSavedFiles.splice(index, 1);
-          await saveSavedFiles(backendSavedFiles);
-        }
-        return { status: "success", message: `El archivo "${fileToDelete.originalFileName}" fue eliminado correctamente.` };
-      } catch (error) {
-        console.error('Error al eliminar archivo:', error);
-        return { status: "error", message: "Error al eliminar el archivo." };
-      }
-    }
-    default: {
-      throw new Error(`Función desconocida: ${toolName}`);
-    }
-  }
-}
-
-// Endpoint para la interacción con el agente Gemini
+// Endpoint para la interacción con el agente Gemini (ahora solo procesa acciones)
 app.post('/chat/agent', express.json(), async (req: Request, res: Response): Promise<void> => {
-  const { message, wallet } = req.body;
+  const { action, params, wallet } = req.body;
 
-  if (!message || !wallet) {
-    res.status(400).json({ error: 'No se proporcionó mensaje o wallet.' });
+  if (!action || !wallet) {
+    res.status(400).json({ error: 'No se proporcionó acción o wallet.' });
     return;
   }
 
-  // 1. Leer prompt base
-  const promptPath = path.join(__dirname, 'agent', 'prompt', 'README.md');
-  let promptBase = '';
   try {
-    promptBase = fsSync.readFileSync(promptPath, 'utf8');
-  } catch (e) {
-    promptBase = 'Eres un asistente para gestión de archivos en bóveda blockchain.';
-  }
-
-  // 2. Leer historial completo de la wallet
-  const key = deriveKeyFromWallet(wallet);
-  const convs = await loadConversations();
-  const userConv = convs.find(c => c.wallet.toLowerCase() === wallet.toLowerCase());
-  let historial = '';
-  if (userConv && userConv.conversaciones.length > 0) {
-    // Tomar todas las conversaciones y formatearlas
-    historial = userConv.conversaciones.map(conv =>
-      conv.mensajes ? decryptMessages((conv as any).mensajes, key).map(m => `${m.rol === 'usuario' ? 'Usuario' : 'Gemini'}: ${m.mensaje}`).join('\n') : ''
-    ).join('\n');
-  }
-
-  // 3. Leer la última lista de archivos guardados
-  let archivosGuardados = '';
-  if (backendSavedFiles.length > 0) {
-    archivosGuardados = 'Archivos guardados actualmente:\n' + backendSavedFiles.map(f => `- ${f.originalFileName}`).join('\n');
-  } else {
-    archivosGuardados = 'No hay archivos guardados actualmente.';
-  }
-
-  // 4. Construir el contexto
-  const contexto = `${promptBase}\n\n---\n\n${historial}\n\n---\n\n${archivosGuardados}\n\n---\n\nUsuario: ${message}`;
-
-  try {
-    const chat = model.startChat({ tools: toolDeclarations });
-    const result = await chat.sendMessage(contexto);
-    const response = result.response;
-    const toolCalls = response.functionCalls();
-
-    if (toolCalls && toolCalls.length > 0) {
-      const toolResults: any[] = [];
-      for (const toolCall of toolCalls) {
-        const toolName = toolCall.name;
-        const args = toolCall.args;
-        try {
-          const toolResult = await ejecutarTool(toolName, args);
-          toolResults.push({
-            toolOutput: {
-              toolCall: toolCall,
-              result: toolResult
-            }
-          });
-        } catch (error: any) {
-          toolResults.push({
-            toolOutput: {
-              toolCall: toolCall,
-              error: error.message
-            }
-          });
+    let result;
+    const normalizedAction = (action || "").toLowerCase();
+    switch (normalizedAction) {
+      case 'listar_archivos':
+      case 'listallpinnedfiles': {
+        // Listar archivos guardados
+        if (backendSavedFiles.length > 0) {
+          const fileNamesList = backendSavedFiles.map((f: SavedFile) => `- ${f.originalFileName}`).join("\n");
+          result = `Estos son tus archivos guardados:\n${fileNamesList}\nPuedes previsualizar o eliminar cualquier archivo solicitándolo.`;
+        } else {
+          result = "No tienes archivos guardados por ahora.";
         }
+        break;
       }
-      const followup = await chat.sendMessage(
-        toolResults.map(toolResult => ({
-          functionResponse: {
-            name: toolResult.toolOutput.toolCall.name,
-            response: toolResult.toolOutput.result || { error: toolResult.toolOutput.error }
-          }
-        }))
-      );
-      res.json({ type: 'tool_calls', content: toolResults });
-    } else {
-      res.json({ type: 'text', content: response.text() });
+      case 'eliminar_archivo':
+      case 'deletefile': {
+        result = 'Acción implementada como placeholder: eliminar archivo.';
+        break;
+      }
+      case 'ver_archivo':
+      case 'viewsavedfile': {
+        result = 'Acción implementada como placeholder: ver archivo.';
+        break;
+      }
+      case 'descargar_archivo':
+      case 'downloadfile': {
+        result = 'Acción implementada como placeholder: descargar archivo.';
+        break;
+      }
+      case 'subir_archivo':
+      case 'uploadtopinata': {
+        result = 'Acción implementada como placeholder: subir archivo.';
+        break;
+      }
+      case 'buscar_por_extension':
+      case 'findfilesbyextension': {
+        result = 'Acción implementada como placeholder: buscar archivos por extensión.';
+        break;
+      }
+      case 'confirmar_subida':
+      case 'confirmfileupload': {
+        result = 'Acción implementada como placeholder: confirmar subida.';
+        break;
+      }
+      default:
+        result = `Acción no reconocida: ${action}`;
     }
+    res.send(result);
   } catch (error) {
-    console.error('Error al comunicarse con el agente Gemini:', error);
-    res.status(500).json({ error: 'Error al comunicarse con el agente Gemini.' });
+    console.error('Error al procesar la acción:', error);
+    res.status(500).json({ error: 'Error al procesar la acción.' });
   }
+});
+
+// Endpoint para proxy a Gemini
+app.post('/api/gemini', express.json(), (req: Request, res: Response) => {
+  (async () => {
+    const { input, wallet } = req.body;
+    if (!input) {
+      return res.status(400).json({ error: 'Falta el mensaje de entrada.' });
+    }
+    const GEMINI_API_KEY = process.env.GOOGLE_API_KEY;
+    if (!GEMINI_API_KEY) {
+      return res.status(500).json({ error: 'No hay API Key de Gemini configurada.' });
+    }
+    // Leer prompt base desde README
+    const promptPath = path.join(__dirname, 'agent', 'prompt', 'README.md');
+    let promptBase = '';
+    try {
+      promptBase = fsSync.readFileSync(promptPath, 'utf8');
+    } catch (e) {
+      promptBase = 'Eres un asistente para gestión de archivos en bóveda blockchain.';
+    }
+    // Concatenar prompt base con el input del usuario
+    const prompt = `${promptBase}\n\nUsuario: ${input}`;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
+    const body = {
+      contents: [{ parts: [{ text: prompt }] }]
+    };
+    try {
+      const response = await axios.post(url, body, {
+        headers: { 'Content-Type': 'application/json' }
+      });
+      const data = response.data;
+      const geminiText = data?.candidates?.[0]?.content?.parts?.[0]?.text || "No se pudo obtener respuesta de Gemini.";
+      res.json({ text: geminiText });
+    } catch (error: any) {
+      console.error('Error al llamar a Gemini:', error?.response?.data || error.message);
+      res.status(500).json({ error: 'Error al llamar a Gemini.' });
+    }
+  })();
 });
 
 // Middleware para manejar la respuesta de descarga

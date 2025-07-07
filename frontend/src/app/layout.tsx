@@ -9,7 +9,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
 // Context Wagmi
-import Web3ModalProvider from "./providers/Web3ModalProvider";
+import Providers from "./providers";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -52,7 +52,7 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        <Web3ModalProvider cookies={cookies}>{children}</Web3ModalProvider>
+        <Providers>{children}</Providers>
       </body>
     </html>
   );

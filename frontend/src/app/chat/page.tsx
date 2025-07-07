@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useCallback } from "react";
 import axios from "axios";
 import { useDisconnect } from "wagmi";
+import CryptoJS from "crypto-js";
 
 interface Message {
   sender: "user" | "agente";
@@ -55,6 +56,24 @@ export default function ChatPage() {
   const [isMounted, setIsMounted] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null); // id del archivo en acción
   const [snackbar, setSnackbar] = useState<string | null>(null);
+
+  // Función para guardar la conversación cifrada (hook debe ir aquí)
+  const saveConversation = useCallback(async () => {
+    if (!address || messages.length === 0) return;
+    try {
+      // Usar la dirección como clave de cifrado (para demo, en producción usar algo más robusto)
+      const key = address;
+      const encrypted = CryptoJS.AES.encrypt(JSON.stringify(messages), key).toString();
+      await axios.post("http://localhost:5000/conversations", {
+        wallet: address,
+        mensajes: encrypted,
+        id: new Date().toISOString()
+      });
+    } catch (e) {
+      // Opcional: mostrar error o log
+      console.error("Error guardando conversación:", e);
+    }
+  }, [address, messages]);
 
   useEffect(() => {
     // Solo se ejecuta en el cliente
@@ -152,7 +171,6 @@ export default function ChatPage() {
 
   const handleSend = async (e?: React.FormEvent) => {
     e?.preventDefault();
-    // Actualizada la condición para el envío
     if (!input.trim() && selectedFiles.length === 0) return;
 
     // --- SUBIDA DE ARCHIVOS ---
@@ -190,82 +208,55 @@ export default function ChatPage() {
       return;
     }
 
-    // --- INTERCEPTAR PETICIONES DE ARCHIVO ANTES DE ENVIAR AL AGENTE ---
-    const peticionArchivo = /(mu[ée]strame|muestrame|necesito ver|quiero ver el contenido|quiero descargar|descargar|ver)\s*"?([\w\d\.\-\s]+\.[a-zA-Z0-9]+)"?/i;
-    const match = input.match(peticionArchivo);
-    if (match) {
-      const fileName = match[2]?.trim();
-      if (fileName) {
-        const file = savedFiles.find(f => f.originalFileName === fileName);
-        if (file) {
-          handleViewFile(file);
-          setMessages((msgs) => [...msgs, { sender: "user", text: input }]);
-          setInput("");
-          return; // No enviar al agente
-        }
-      }
-    }
+    // --- FLUJO CON GEMINI ---
+    setMessages((msgs) => [...msgs, { sender: "user", text: input }]);
+    setInput("");
+    try {
+      // 1. Llamar a Gemini (simulado aquí como ejemplo)
+      // Reemplaza esto por la llamada real a Gemini si tienes API
+      const geminiResponse = await geminiApi(input, address);
 
-    // Si no es petición de archivo, enviar mensaje al agente normalmente
-    if (input.trim()) {
-      setMessages((msgs) => [...msgs, { sender: "user", text: input }]);
-      setInput("");
-      try {
-        const response = await axios.post('http://localhost:5000/chat/agent', { 
-          message: input,
-          savedFilesContext: savedFiles 
-        });
-        if (response.data.type === 'tool_calls') {
-          // Manejar las llamadas a herramientas
-          const toolResults = response.data.content;
-          for (const result of toolResults) {
-            if (result.toolOutput.result) {
-              const agentMessage: Message = {
-                sender: "agente",
-                text: result.toolOutput.result.message,
-              };
-              if (result.toolOutput.result.fileId) {
-                agentMessage.savedFileId = result.toolOutput.result.fileId;
-              }
-              if (result.toolOutput.result.fileId && result.toolOutput.result.ipfsUrl && result.toolOutput.result.originalFileName && result.toolOutput.result.fileType) {
-                const newSavedFile: SavedFile = {
-                  id: result.toolOutput.result.fileId,
-                  ipfsUrl: result.toolOutput.result.ipfsUrl,
-                  originalFileName: result.toolOutput.result.originalFileName,
-                  fileType: result.toolOutput.result.fileType,
-                };
-                setSavedFiles(prev => {
-                  if (!prev.some(f => f.id === newSavedFile.id)) {
-                    return [...prev, newSavedFile];
-                  }
-                  return prev;
-                });
-              }
-              setMessages((msgs) => [...msgs, agentMessage]);
-            }
+      function extractJsonFromGeminiResponse(response: string) {
+        // Busca bloque ```json ... ```
+        const match = response.match(/```json\s*([\s\S]+?)```/i);
+        if (match) {
+          try {
+            return JSON.parse(match[1]);
+          } catch {
+            return null;
           }
-        } else if (response.data.type === 'text') {
-          const agentMessage: Message = {
-            sender: "agente",
-            text: response.data.content
-          };
-          if (response.data.savedFileId) {
-            agentMessage.savedFileId = response.data.savedFileId;
-            if (response.data.fileType) {
-              agentMessage.fileType = response.data.fileType;
-            }
-            if (response.data.fileUrl) {
-              agentMessage.fileUrl = response.data.fileUrl;
-            }
-          }
-          setMessages((msgs) => [...msgs, agentMessage]);
         }
-      } catch (error) {
-        setMessages((msgs) => [...msgs, { 
-          sender: "agente", 
-          text: "Lo siento, hubo un error al procesar tu mensaje. Por favor, intenta de nuevo." 
-        }]);
+        // Si no hay bloque, intenta parsear todo como JSON
+        try {
+          return JSON.parse(response);
+        } catch {
+          return null;
+        }
       }
+
+      const parsed = extractJsonFromGeminiResponse(geminiResponse);
+
+      if (parsed && typeof parsed === 'object' && 'action' in parsed) {
+        // Siempre muestra la respuesta natural de Gemini primero
+        setMessages((msgs) => [...msgs, { sender: "agente", text: parsed.respuesta || "" }]);
+        if (parsed.action) {
+          // Si hay acción, llama al backend y muestra la respuesta cuando llegue
+          const backendResponse = await axios.post('http://localhost:5000/chat/agent', {
+            ...parsed,
+            wallet: address || ""
+          });
+          setMessages((msgs) => [...msgs, { sender: "agente", text: backendResponse.data }]);
+        }
+      } else {
+        // Si no es JSON, muestra solo el texto natural ANTES del bloque JSON (si lo hay)
+        const textOnly = geminiResponse.split("```json")[0].trim();
+        setMessages((msgs) => [...msgs, { sender: "agente", text: textOnly }]);
+      }
+    } catch (error) {
+      setMessages((msgs) => [...msgs, {
+        sender: "agente",
+        text: "Lo siento, hubo un error al procesar tu mensaje. Por favor, intenta de nuevo."
+      }]);
     }
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
@@ -309,7 +300,8 @@ export default function ChatPage() {
   };
 
   // Handler para desconectar y volver a la landing
-  const handleDisconnect = () => {
+  const handleDisconnect = async () => {
+    await saveConversation();
     disconnect();
     router.push("/");
   };
@@ -749,4 +741,15 @@ export default function ChatPage() {
       {snackbar && <Snackbar message={snackbar} onClose={() => setSnackbar(null)} />}
     </main>
   );
+} 
+
+// Conexión real a Gemini (proxy backend)
+async function geminiApi(input: string, wallet?: string) {
+  const response = await fetch("http://localhost:5000/api/gemini", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ input, wallet })
+  });
+  const data = await response.json();
+  return data?.text || "No se pudo obtener respuesta de Gemini.";
 } 
