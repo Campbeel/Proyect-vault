@@ -1,8 +1,36 @@
-## Reestructuración para Gemini (IA)
+# 🚀 Backend - Blockchain Vault
 
-Se crearán dos carpetas nuevas:
+## 📋 Descripción
+Backend para la aplicación de almacenamiento seguro de archivos en blockchain, con integración de Prisma, Supabase y Gemini AI.
 
-- `agent_prompt/`: Contendrá el prompt base del agente Gemini. Aquí se podrá editar el prompt general que usará la IA para cada conversación.
-- `instructions/`: Aquí se escribirán instrucciones dinámicas o temporales según lo que pida el usuario en cada sesión/conversación.
+## 🏗️ Arquitectura
+- **Express.js**: Servidor web
+- **Prisma**: ORM para base de datos
+- **Supabase**: Base de datos PostgreSQL
+- **Pinata**: Almacenamiento IPFS
+- **Gemini AI**: Agente conversacional
 
-Esto permitirá separar claramente la lógica base del agente y las instrucciones específicas de cada usuario o contexto. 
+## 📁 Estructura del Proyecto
+```
+src/
+├── index.ts              # Servidor principal con Prisma
+├── index-prisma.ts       # Versión alternativa con Prisma
+├── lib/
+│   └── prisma.ts         # Cliente de Prisma
+├── agent/
+│   ├── prompt/           # Prompts para Gemini
+│   └── instructions/     # Instrucciones del agente
+└── cmd/                  # Comandos adicionales
+```
+
+## 🔧 Configuración
+1. Configurar variables de entorno en `.env`
+2. Ejecutar `npx prisma generate`
+3. Ejecutar `npx prisma db push`
+4. Iniciar con `npm run dev`
+
+## 🌐 Endpoints Principales
+- `POST /api/gemini` - Agente conversacional
+- `POST /upload` - Subida de archivos
+- `GET /files` - Listar archivos
+- `POST /conversations` - Guardar conversaciones 

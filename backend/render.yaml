@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: blockchain-vault-backend
+    env: node
+    plan: free
+    buildCommand: npm install && npx prisma generate && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: DATABASE_URL
+        sync: false  # Configurar manualmente en Render con tu URL de Supabase
+      - key: FRONTEND_URL
+        sync: false  # Configurar manualmente con tu dominio de Vercel
+      - key: PINATA_JWT
+        sync: false  # Configurar manualmente con tu token de Pinata
+      - key: GOOGLE_API_KEY
+        sync: false  # Configurar manualmente con tu API key de Google AI 

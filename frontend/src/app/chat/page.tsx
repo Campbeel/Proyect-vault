@@ -1,5 +1,8 @@
 "use client";
 
+// =======================
+// IMPORTS Y DEPENDENCIAS
+// =======================
 import { useAccount } from "wagmi";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useCallback } from "react";
@@ -7,6 +10,9 @@ import axios from "axios";
 import { useDisconnect } from "wagmi";
 import CryptoJS from "crypto-js";
 
+// =======================
+// TIPOS Y MODELOS
+// =======================
 interface Message {
   sender: "user" | "agente";
   text?: string;
@@ -22,7 +28,9 @@ interface SavedFile {
   fileType: string;
 }
 
-// Snackbar para confirmaciones
+// =======================
+// COMPONENTE SNACKBAR (notificaciones)
+// =======================
 function Snackbar({ message, onClose }: { message: string, onClose: () => void }) {
   return (
     <div className="fixed bottom-8 left-1/2 transform -translate-x-1/2 bg-green-600 text-white px-6 py-3 rounded-xl shadow-lg z-50 animate-fade-in">
@@ -32,10 +40,16 @@ function Snackbar({ message, onClose }: { message: string, onClose: () => void }
   );
 }
 
+// =======================
+// COMPONENTE PRINCIPAL DE CHAT
+// =======================
 export default function ChatPage() {
+  // Hooks de conexión y navegación
   const { isConnected, address } = useAccount();
   const router = useRouter();
   const { disconnect } = useDisconnect();
+
+  // Estado de mensajes y archivos
   const [messages, setMessages] = useState<Message[]>([
     { sender: "agente", text: "¡Hola! ¿En qué puedo ayudarte hoy?" },
   ]);
@@ -51,17 +65,18 @@ export default function ChatPage() {
   const [viewingFileUrl, setViewingFileUrl] = useState<string | null>(null);
   const [viewingFileName, setViewingFileName] = useState<string | null>(null);
   const [viewingFileType, setViewingFileType] = useState<string | null>(null);
-  // Generar el nonce solo en el cliente para evitar hydration error
   const [nonce, setNonce] = useState<string>("");
   const [isMounted, setIsMounted] = useState(false);
-  const [actionLoading, setActionLoading] = useState<string | null>(null); // id del archivo en acción
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [snackbar, setSnackbar] = useState<string | null>(null);
 
-  // Función para guardar la conversación cifrada (hook debe ir aquí)
+  // =======================
+  // FUNCIONES DE CONVERSACIÓN Y CIFRADO
+  // =======================
+  // Guarda la conversación cifrada en el backend
   const saveConversation = useCallback(async () => {
     if (!address || messages.length === 0) return;
     try {
-      // Usar la dirección como clave de cifrado (para demo, en producción usar algo más robusto)
       const key = address;
       const encrypted = CryptoJS.AES.encrypt(JSON.stringify(messages), key).toString();
       await axios.post("http://localhost:5000/conversations", {
@@ -70,7 +85,6 @@ export default function ChatPage() {
         id: new Date().toISOString()
       });
     } catch (e) {
-      // Opcional: mostrar error o log
       console.error("Error guardando conversación:", e);
     }
   }, [address, messages]);

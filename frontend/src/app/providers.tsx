@@ -1,18 +1,26 @@
+// =======================
+// IMPORTS Y DEPENDENCIAS
+// =======================
 "use client";
 
-import { WagmiConfig } from "wagmi";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { WagmiProvider } from "wagmi";
 import { config } from "../../config";
-import React, { ReactNode, useState } from "react";
 
-export default function Providers({ children }: { children: ReactNode }) {
-  const [queryClient] = useState(() => new QueryClient());
+// =======================
+// CONFIGURACIÓN DE QUERY CLIENT
+// =======================
+const queryClient = new QueryClient();
 
+// =======================
+// PROVEEDORES DE CONTEXTO PRINCIPALES
+// =======================
+export default function Providers({ children }: { children: React.ReactNode }) {
   return (
-    <WagmiConfig config={config}>
+    <WagmiProvider config={config}>
       <QueryClientProvider client={queryClient}>
         {children}
       </QueryClientProvider>
-    </WagmiConfig>
+    </WagmiProvider>
   );
 } 

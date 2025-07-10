@@ -1,58 +1,39 @@
-// Next
+// =======================
+// IMPORTS Y DEPENDENCIAS
+// =======================
 import type { Metadata } from "next";
-import { headers } from "next/headers";
-
-// Fonts
-import { Geist, Geist_Mono } from "next/font/google";
-
-// Styles
+import { Inter } from "next/font/google";
 import "./globals.css";
-
-// Context Wagmi
 import Providers from "./providers";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
+// =======================
+// CONFIGURACIÓN DE FUENTES
+// =======================
+const inter = Inter({ subsets: ["latin"] });
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
-
+// =======================
+// METADATOS DE LA APLICACIÓN
+// =======================
 export const metadata: Metadata = {
-  title: "Frontend web3 hackathon starter",
-  description: "Frontend web3 hackathon starter",
-  openGraph: {
-    title: "Frontend web3 hackathon starter",
-    description: "Frontend web3 hackathon starter",
-    url: "https://frontend-web3-hackathon-starter.vercel.app",
-    siteName: "Frontend web3 hackathon starter",
-    type: "website",
-    images: [
-      {
-        url: "assets/cover.jpg",
-        alt: "Frontend web3 hackathon starter",
-      },
-    ],
-  },
+  title: "BlockChat - Tu Caja Fuerte Digital en Blockchain",
+  description: "Guarda archivos y mensajes de forma privada y descentralizada usando tu billetera como llave.",
 };
 
+// =======================
+// LAYOUT PRINCIPAL DE LA APLICACIÓN
+// =======================
 export default function RootLayout({
   children,
-}: Readonly<{
+}: {
   children: React.ReactNode;
-}>) {
-  const cookieStore = headers();
-  const cookies = cookieStore.toString();
-
+}) {
   return (
-    <html lang="en">
-      <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
-      >
-        <Providers>{children}</Providers>
+    <html lang="es">
+      <body className={inter.className}>
+        {/* Proveedores de contexto (Web3, Wallet, etc.) */}
+        <Providers>
+          {children}
+        </Providers>
       </body>
     </html>
   );
