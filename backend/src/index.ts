@@ -144,7 +144,7 @@ app.post('/upload', upload.single('file'), async (req: Request, res: Response) =
     const ipfsUrl = `ipfs://${ipfsHash}`;
     const file = await prisma.file.create({
       data: {
-        ipfsUrl,
+      ipfsUrl,
         originalName: originalFileName,
         fileType,
         fileSize: req.file.size,
@@ -343,6 +343,6 @@ app.get('/health', (req, res) => {
 });
 
 // Inicializar servidor
-app.listen(port, () => {
-  console.log(`Servidor backend escuchando en http://localhost:${port}`);
-});
+  app.listen(port, () => {
+    console.log(`Servidor backend escuchando en http://localhost:${port}`);
+  });
