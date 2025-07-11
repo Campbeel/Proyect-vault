@@ -3,7 +3,7 @@ import http from "http";
 // third-party
 import bodyParser from "body-parser";
 import cors from "cors";
-import express, { Express } from "express";
+import express, { Express, Request, Response, NextFunction, RequestHandler } from "express";
 import morgan from "morgan";
 
 declare module "http" {
@@ -16,6 +16,13 @@ declare module "http" {
 }
 
 const allowedOrigins = ["http://localhost:3000", "https://localhost:3000"];
+
+const requireBody: RequestHandler = (req, res, next) => {
+  if (req.method === "POST" && !req.body) {
+    return res.status(400).json({ message: "Request body is required" });
+  }
+  next();
+};
 
 export function createServer(): { app: Express; server: http.Server } {
   const app = express();
@@ -34,12 +41,7 @@ export function createServer(): { app: Express; server: http.Server } {
     }
   );
 
-  app.use((req: any, res: any, next: any) => {
-    if (req.method === "POST" && !req.body) {
-      return res.status(400).json({ message: "Request body is required" });
-    }
-    next();
-  });
+  app.use(requireBody);
 
   app.use((req, res, next) => {
     const origin = req.headers.origin;
