@@ -28,8 +28,12 @@ function decryptMessages(ciphertext: string, key: string): MensajeConversacion[]
 dotenv.config();
 
 const app = express();
-console.log('DEBUG PORT:', process.env.PORT); // <-- Línea de depuración añadida
-const port = process.env.PORT || 5000;
+console.log('DEBUG PORT:', process.env.PORT);
+let port = process.env.PORT || 5000;
+if (port == 10000 || port == "10000") {
+  port = 5000;
+  console.log("⚠️  PORT 10000 detectado, usando 5000 en su lugar");
+}
 
 // Middleware
 app.use(cors({
