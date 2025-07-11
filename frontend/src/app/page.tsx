@@ -30,21 +30,29 @@ export default function Home() {
   // }, [isConnected, router]);
 
   const handleGoToChat = async () => {
-    if (!isConnected) {
-      try {
-        setIsConnecting(true);
-        setTriedConnect(true);
-        await connect({ connector: injected() });
-        setIsConnecting(false);
-        // No redirigir aquí, esperar a que isConnected sea true
-      } catch (error) {
-        setIsConnecting(false);
-        setErrorMsg("Conexión rechazada o fallida. Por favor, inténtalo de nuevo.");
-        setTriedConnect(false);
-        return;
-      }
-    } else {
+    // 1. Detectar si hay wallet instalada SOLO al presionar el botón
+    if (typeof window !== "undefined" && !window.ethereum) {
+      setErrorMsg("No se detectó ninguna wallet instalada. Por favor, instala MetaMask u otra wallet compatible.");
+      return;
+    }
+
+    // 2. Si ya está conectada, entra directo
+    if (isConnected) {
       router.push("/chat");
+      return;
+    }
+
+    // 3. Si hay wallet pero no está conectada, intenta conectar
+    try {
+      setIsConnecting(true);
+      setTriedConnect(true);
+      await connect({ connector: injected() });
+      setIsConnecting(false);
+      // La redirección se maneja en el useEffect cuando isConnected cambia a true
+    } catch (error) {
+      setIsConnecting(false);
+      setErrorMsg("Conexión rechazada o fallida. Por favor, inténtalo de nuevo.");
+      setTriedConnect(false);
     }
   };
 
