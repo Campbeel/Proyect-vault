@@ -8,8 +8,8 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
-      - key: PORT
-        value: 10000
+      # - key: PORT
+      #   value: 10000
       - key: DATABASE_URL
         sync: false  # Configurar manualmente en Render con tu URL de Supabase
       - key: FRONTEND_URL
