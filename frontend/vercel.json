@@ -4,8 +4,8 @@
   "framework": "nextjs",
   "installCommand": "npm install",
   "env": {
-    "NEXT_PUBLIC_BACKEND_URL": "@backend-url",
-    "NEXT_PUBLIC_CHAIN_ID": "@chain-id",
-    "NEXT_PUBLIC_RPC_URL": "@rpc-url"
+    "NEXT_PUBLIC_BACKEND_URL": "https://proyect-vault.onrender.com",
+    "NEXT_PUBLIC_CHAIN_ID": "8453",
+    "NEXT_PUBLIC_RPC_URL": "https://mainnet.base.org"
   }
 } 
