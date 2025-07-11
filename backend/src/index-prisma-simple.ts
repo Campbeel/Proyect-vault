@@ -1,10 +1,7 @@
-import express from 'express';
-import cors from 'cors';
-import multer from 'multer';
-import dotenv from 'dotenv';
-import axios from 'axios';
-import CryptoJS from 'crypto-js';
-import { prisma } from './lib/prisma';
+// =======================
+// IMPORTS Y DEPENDENCIAS
+// =======================
+import { express, cors, multer, dotenv, axios, CryptoJS, prisma } from "./imports";
 
 interface MensajeConversacion {
   rol: 'usuario' | 'gemini';

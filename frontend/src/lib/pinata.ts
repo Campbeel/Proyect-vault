@@ -1,7 +1,7 @@
 // =======================
 // IMPORTS Y DEPENDENCIAS
 // =======================
-import axios from 'axios';
+import { axios } from "../imports";
 
 // =======================
 // TIPOS Y INTERFACES

@@ -1,11 +1,7 @@
 "use client";
 
 // React
-import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
-
-// Wagmi Hooks
-import { useAccount, useConnect, useDisconnect } from "wagmi";
+import { useState, useEffect, useRouter, useAccount, useConnect, useDisconnect } from "../imports";
 import { readContract, writeContract } from "@wagmi/core";
 import { injected } from "wagmi/connectors";
 

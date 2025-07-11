@@ -1,16 +1,7 @@
 // =======================
 // IMPORTS Y DEPENDENCIAS
 // =======================
-import express, { Request, Response } from 'express';
-import cors from 'cors';
-import multer from 'multer';
-import dotenv from 'dotenv';
-import axios from 'axios';
-import path from 'path';
-import fs from 'fs/promises';
-import fsSync from 'fs'; // Para leer archivos de texto de forma síncrona
-import CryptoJS from 'crypto-js';
-import { prisma } from './lib/prisma';
+import { express, Request, Response, cors, multer, dotenv, axios, path, fs, fsSync, CryptoJS, prisma } from "./imports";
 
 // =======================
 // INTERFACES Y TIPOS

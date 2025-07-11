@@ -1,11 +1,7 @@
-import express, { Request, Response } from 'express';
-import cors from 'cors';
-import multer from 'multer';
-import dotenv from 'dotenv';
-import axios from 'axios';
-import { GoogleGenerativeAI, Tool, FunctionDeclaration, SchemaType } from '@google/generative-ai';
-import CryptoJS from 'crypto-js';
-import { prisma } from './lib/prisma';
+// =======================
+// IMPORTS Y DEPENDENCIAS
+// =======================
+import { express, Request, Response, cors, multer, dotenv, axios, path, fs, fsSync, CryptoJS, prisma } from "./imports";
 
 interface MensajeConversacion {
   rol: 'usuario' | 'gemini';
