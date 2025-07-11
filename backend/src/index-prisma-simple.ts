@@ -28,6 +28,7 @@ function decryptMessages(ciphertext: string, key: string): MensajeConversacion[]
 dotenv.config();
 
 const app = express();
+console.log('DEBUG PORT:', process.env.PORT); // <-- Línea de depuración añadida
 const port = process.env.PORT || 5000;
 
 // Middleware
