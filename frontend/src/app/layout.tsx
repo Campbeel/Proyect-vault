@@ -15,10 +15,10 @@ const inter = Inter({ subsets: ["latin"] });
 // =======================
 // METADATOS DE LA APLICACIÓN
 // =======================
-export const metadata: Metadata = {
-  title: "BlockChat - Tu Caja Fuerte Digital en Blockchain",
-  description: "Guarda archivos y mensajes de forma privada y descentralizada usando tu billetera como llave.",
-};
+// export const metadata: Metadata = {
+//   title: "BlockChat - Tu Caja Fuerte Digital en Blockchain",
+//   description: "Guarda archivos y mensajes de forma privada y descentralizada usando tu billetera como llave.",
+// };
 
 // =======================
 // LAYOUT PRINCIPAL DE LA APLICACIÓN
