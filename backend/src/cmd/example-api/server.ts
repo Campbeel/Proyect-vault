@@ -1,12 +1,10 @@
-// internal
-import { http, config } from "@internal";
+import { createServer } from "../../internal/http/server";
+import { PROJECT_ID, validateRequiredEnvs } from "../../internal/config";
 
 // validate required envs
-config.validateRequiredEnvs();
+validateRequiredEnvs();
 
 // http
-const { app, server } = http.createServer();
-
-http.createExampleRouter(app, {});
+const { app, server } = createServer();
 
 export default server;
