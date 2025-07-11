@@ -32,7 +32,8 @@
     "multer": "^1.4.5-lts.1",
     "@types/cors": "^2.8.19",
     "@types/crypto-js": "^4.2.2",
-    "@types/morgan": "^1.9.10"
+    "@types/morgan": "^1.9.10",
+    "crypto-js": "^4.2.0"
   },
   "devDependencies": {
     "@types/express": "^5.0.3",
