@@ -13,7 +13,7 @@ import {
   axios,
   useDisconnect,
   CryptoJS
-} from "../imports";
+} from "../../imports";
 
 // =======================
 // TIPOS Y MODELOS

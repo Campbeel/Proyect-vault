@@ -14,7 +14,7 @@ export { default as axios } from "axios";
 export { default as CryptoJS } from "crypto-js";
 
 // Componentes principales
-export { default as ChatPage } from "./app/chat";
+export { default as ChatPage } from "./app/chat/chat";
 export { default as LandingPage } from "./app/page";
 export { default as AppProviders } from "./app/providers";
 export { default as AppLayout } from "./app/layout";
