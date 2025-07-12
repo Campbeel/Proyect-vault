@@ -2,6 +2,7 @@
 // IMPORTS Y DEPENDENCIAS
 // =======================
 import { express, Request, Response, cors, multer, dotenv, axios, path, fs, fsSync, CryptoJS, prisma } from "./imports";
+import fileVaultRouter from "./internal/http/filevault/routes";
 
 // =======================
 // INTERFACES Y TIPOS
@@ -38,6 +39,9 @@ const port = process.env.PORT || 5000;
 app.use(cors({ origin: 'http://localhost:3000' }));
 app.use(express.json());
 const upload = multer();
+
+// Montar endpoints de blockchain
+app.use("/api/files", fileVaultRouter);
 
 // =======================
 // ENDPOINTS DE CONVERSACIONES

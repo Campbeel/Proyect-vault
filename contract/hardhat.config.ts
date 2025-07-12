@@ -1,29 +1,14 @@
-require("dotenv").config();
-require("@nomicfoundation/hardhat-toolbox");
-require("@nomicfoundation/hardhat-ethers");
-require("@nomicfoundation/hardhat-verify");
+import { HardhatUserConfig } from "hardhat/config";
+import "@nomicfoundation/hardhat-toolbox";
 
-module.exports = {
+const config: HardhatUserConfig = {
   solidity: "0.8.20",
   networks: {
-    base: {
-      url: "https://mainnet.base.org", // RPC de Base mainnet
-      accounts: [process.env.PRIVATE_KEY],
-    },
-  },
-  etherscan: {
-    apiKey: {
-      base: process.env.BASESCAN_API_KEY,
-    },
-    customChains: [
-      {
-        network: "base",
-        chainId: 8453,
-        urls: {
-          apiURL: "https://api.basescan.org/api",
-          browserURL: "https://basescan.org",
-        },
-      },
-    ],
-  },
+    sepolia: {
+      url: "https://sepolia.infura.io/v3/47df9777b0fe429686e584a221fc8221",
+      accounts: ["f68d41d0585f3329ee3cb517f7a96bb5194bd4212d37c2b9691533fbab8bd13e"]
+    }
+  }
 };
+
+export default config;
