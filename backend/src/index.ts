@@ -73,9 +73,14 @@ app.post('/upload', upload.single('file'), async (req: Request, res: Response) =
   if (!user) {
     user = await prisma.user.create({ data: { wallet: wallet.toLowerCase() } });
   }
+  const FormData = require('form-data');
   const formData = new FormData();
-  const fileBlob = new Blob([req.file.buffer], { type: req.file.mimetype });
-  formData.append('file', fileBlob, req.file.originalname);
+  formData.append('file', req.file.buffer, {
+    filename: req.file.originalname,
+    contentType: req.file.mimetype
+  });
+  // Agregar metadata personalizada con el nombre original
+  formData.append('pinataMetadata', JSON.stringify({ name: originalFileName }));
   try {
     const pinataResponse = await axios.post(
       'https://api.pinata.cloud/pinning/pinFileToIPFS',
@@ -84,9 +89,11 @@ app.post('/upload', upload.single('file'), async (req: Request, res: Response) =
         maxBodyLength: Infinity,
         headers: {
           'Authorization': `Bearer ${pinataJWT}`,
+          ...formData.getHeaders(), // Asegura el header correcto
         },
       }
     );
+    console.log('Respuesta de Pinata al subir archivo:', pinataResponse.data);
     const ipfsHash = pinataResponse.data.IpfsHash;
     const ipfsUrl = `ipfs://${ipfsHash}`;
     const file = await prisma.file.create({
@@ -226,43 +233,51 @@ app.post('/chat/agent', express.json(), async (req: Request, res: Response): Pro
           result = { success: false, error: 'No se proporcionó el ID o nombre del archivo.' };
           break;
         }
-        
-        // Si se proporciona fileId, buscar directamente en la base de datos
+        // Si se proporciona fileId, buscar directamente en la blockchain (por hash)
         if (fileId) {
-          const file = await prisma.file.findUnique({ where: { id: fileId } });
-          if (!file) {
-            result = { success: false, error: 'Archivo no encontrado.' };
+          // Buscar metadata en Pinata por hash
+          const hash = fileId.replace('ipfs://', '');
+          try {
+            const pinataJWT = process.env.PINATA_JWT;
+            const metaRes = await axios.get(`https://api.pinata.cloud/data/pinList?hashContains=${hash}`,
+              { headers: { 'Authorization': `Bearer ${pinataJWT}` } });
+            const item = metaRes.data.rows && metaRes.data.rows[0];
+            if (!item) {
+              result = { success: false, error: 'Archivo no encontrado en Pinata.' };
+              break;
+            }
+            result = {
+              success: true,
+              file: {
+                id: fileId,
+                ipfsUrl: fileId,
+                originalFileName: item.metadata.name,
+                fileType: item.metadata.keyvalues && item.metadata.keyvalues.type || 'desconocido'
+              }
+            };
+            break;
+          } catch {
+            result = { success: false, error: 'Archivo no encontrado en Pinata.' };
             break;
           }
-          result = { 
-            success: true, 
-            file: {
-              id: file.id,
-              ipfsUrl: file.ipfsUrl,
-              originalFileName: file.originalName,
-              fileType: file.fileType
-            }
-          };
-          break;
         }
-        
         // Si se proporciona fileName, buscar en la blockchain y Pinata
         if (fileName) {
-          // 1. Obtener los hashes de la blockchain para la wallet
           const hashes = await getFiles(wallet);
-          // 2. Consultar a Pinata/IPFS para obtener metadatos y buscar el archivo por nombre
           let foundFile = null;
           let matches = [];
           const fileNameLower = fileName.toLowerCase();
           const hasExtension = fileName.includes('.') && fileName.split('.').pop().length <= 5;
+          const pinataJWT = process.env.PINATA_JWT;
           for (const hash of hashes) {
             try {
-              const url = `https://gateway.pinata.cloud/ipfs/${hash.replace('ipfs://', '')}`;
-              const head = await fetch(url, { method: 'HEAD' });
-              const pinataName = head.headers.get('x-pinata-metadata') || '';
-              const contentType = head.headers.get('content-type') || 'desconocido';
+              const metaRes = await axios.get(`https://api.pinata.cloud/data/pinList?hashContains=${hash.replace('ipfs://', '')}`,
+                { headers: { 'Authorization': `Bearer ${pinataJWT}` } });
+              const item = metaRes.data.rows && metaRes.data.rows[0];
+              if (!item) continue;
+              const pinataName = item.metadata.name || '';
+              const contentType = item.metadata.keyvalues && item.metadata.keyvalues.type || 'desconocido';
               if (hasExtension) {
-                // Coincidencia exacta (nombre completo)
                 if (pinataName.toLowerCase() === fileNameLower) {
                   foundFile = {
                     id: hash,
@@ -273,7 +288,6 @@ app.post('/chat/agent', express.json(), async (req: Request, res: Response): Pro
                   break;
                 }
               } else {
-                // Coincidencia parcial (sin extensión)
                 if (pinataName.toLowerCase().startsWith(fileNameLower)) {
                   matches.push({
                     id: hash,
@@ -299,7 +313,6 @@ app.post('/chat/agent', express.json(), async (req: Request, res: Response): Pro
           result = { success: true, file: foundFile };
           break;
         }
-        
         result = { success: false, error: 'Parámetros inválidos para ver archivo.' };
         break;
       }

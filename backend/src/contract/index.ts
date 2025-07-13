@@ -1,9 +1,15 @@
 import { ethers } from "ethers";
 import FileVaultABI from "./FileVaultABI.json";
 
-// === REEMPLAZAR estos valores cuando el usuario los proporcione ===
-const CONTRACT_ADDRESS = "0xBA1a09D41F0b6334ef18De9F46597d95dC0c52bc"; // <-- Pega aquí la dirección
-const RPC_URL = "https://sepolia.infura.io/v3/47df9777b0fe429686e584a221fc8221";    // <-- Pega aquí el RPC URL
+// === Configuración sensible: nunca subas la clave privada a GitHub ===
+// Usa siempre variables de entorno (.env) para PRIVATE_KEY, RPC_URL y CONTRACT_ADDRESS
+// Ejemplo de .env:
+// PRIVATE_KEY=tu_clave_privada
+// RPC_URL=https://sepolia.infura.io/v3/tu_api_key
+// CONTRACT_ADDRESS=0x...
+
+const CONTRACT_ADDRESS = process.env.CONTRACT_ADDRESS;
+const RPC_URL = process.env.RPC_URL;
 // ================================================================
 
 const provider = new ethers.JsonRpcProvider(RPC_URL);
