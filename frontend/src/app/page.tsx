@@ -1,26 +1,12 @@
 "use client";
 
 // React
-import { useState, useEffect, useRouter, useAccount, useConnect, useDisconnect } from "../imports";
-import { readContract, writeContract } from "@wagmi/core";
-import { injected } from "wagmi/connectors";
-
-// Contract information Address and ABI
-const SIMPLE_STORAGE_CONTRACT_ADDRESS =
-  "0xcb8b8317ef7e5f5afb641813e07177cbd791bf8e";
-import SimpleStorageContractABI from "../../contract/SimpleStorageContractABI.json";
+import { useState, useEffect, useRouter } from "../imports";
+import { useAccount } from "wagmi";
 
 export default function Home() {
   const router = useRouter();
   const { address, isConnected } = useAccount();
-  const { connect } = useConnect();
-  const { disconnect } = useDisconnect();
-  const [currentValue, setCurrentValue] = useState<bigint | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [newValue, setNewValue] = useState("");
-  const [isWriting, setIsWriting] = useState(false);
-  const [isConnecting, setIsConnecting] = useState(false);
-  const [errorMsg, setErrorMsg] = useState("");
   const [triedConnect, setTriedConnect] = useState(false);
 
   // useEffect(() => {
@@ -30,39 +16,34 @@ export default function Home() {
   // }, [isConnected, router]);
 
   const handleGoToChat = async () => {
-    // 1. Detectar si hay wallet instalada SOLO al presionar el botón
-    if (typeof window !== "undefined" && !window.ethereum) {
-      setErrorMsg("No se detectó ninguna wallet instalada. Por favor, instala MetaMask u otra wallet compatible.");
-      return;
-    }
-
-    // 2. Si ya está conectada, entra directo
-    if (isConnected) {
+    if (isConnected && address) {
       router.push("/chat");
-      return;
-    }
-
-    // 3. Si hay wallet pero no está conectada, intenta conectar
-    try {
-      setIsConnecting(true);
-      setTriedConnect(true);
-      await connect({ connector: injected() });
-      setIsConnecting(false);
-      // La redirección se maneja en el useEffect cuando isConnected cambia a true
-    } catch (error) {
-      setIsConnecting(false);
-      setErrorMsg("Conexión rechazada o fallida. Por favor, inténtalo de nuevo.");
-      setTriedConnect(false);
+    } else if (typeof window !== "undefined" && window.ethereum) {
+      try {
+        // Esto abre el popup de MetaMask solo al presionar el botón
+        const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+        if (accounts && accounts.length > 0) {
+          router.push("/chat");
+        } else {
+          alert("Por favor, conecta tu wallet antes de continuar.");
+        }
+      } catch {
+        alert("Debes aceptar la conexión en MetaMask para continuar.");
+      }
+    } else {
+      alert("No se detectó ninguna wallet instalada. Por favor, instala MetaMask.");
     }
   };
 
+  // No es necesario setear wallet manualmente, wagmi lo gestiona
+
   // Redirigir solo si el usuario intentó conectar y la conexión fue exitosa
   useEffect(() => {
-    if (triedConnect && isConnected) {
+    if (triedConnect && isConnected && address) {
       router.push("/chat");
       setTriedConnect(false);
     }
-  }, [isConnected, triedConnect, router]);
+  }, [triedConnect, isConnected, address, router]);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-black to-gray-900">
@@ -79,18 +60,16 @@ export default function Home() {
           </div>
           <button
             onClick={handleGoToChat}
-            disabled={isConnecting}
-            className={`px-6 py-2 bg-gradient-to-r from-green-500 to-blue-600 text-white rounded-xl font-medium flex items-center gap-2 transition-all duration-300 shadow-lg hover:shadow-xl ${isConnecting ? 'opacity-50 cursor-not-allowed' : 'hover:from-green-600 hover:to-blue-700'}`}
+            disabled={false} // isConnecting is removed
+            className={`px-6 py-2 bg-gradient-to-r from-green-500 to-blue-600 text-white rounded-xl font-medium flex items-center gap-2 transition-all duration-300 shadow-lg hover:shadow-xl ${false ? 'opacity-50 cursor-not-allowed' : 'hover:from-green-600 hover:to-blue-700'}`} // isConnecting is removed
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
             </svg>
             <span>
-              {isConnecting
+              {false
                 ? "Conectando..."
-                : isConnected
-                  ? "Acceder al chat "
-                  : "Conectar billetera"}
+                : "Ir al chat"}
             </span>
           </button>
         </nav>
@@ -199,14 +178,6 @@ export default function Home() {
           </div>
         </div>
       </footer>
-
-      {/* Popup de error */}
-      {errorMsg && (
-        <div className="fixed top-8 left-1/2 transform -translate-x-1/2 bg-red-600 text-white px-6 py-3 rounded-xl shadow-lg z-50 animate-fade-in flex items-center gap-4">
-          <span>{errorMsg}</span>
-          <button onClick={() => setErrorMsg("")} className="ml-4 text-white font-bold">X</button>
-        </div>
-      )}
     </div>
   );
 }

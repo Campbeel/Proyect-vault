@@ -70,10 +70,10 @@ export default function ChatPage() {
   const [viewingFileUrl, setViewingFileUrl] = useState<string | null>(null);
   const [viewingFileName, setViewingFileName] = useState<string | null>(null);
   const [viewingFileType, setViewingFileType] = useState<string | null>(null);
-  const [nonce, setNonce] = useState<string>("");
   const [isMounted, setIsMounted] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [snackbar, setSnackbar] = useState<string | null>(null);
+  // Estado para wallet
 
   // =======================
   // FUNCIONES DE CONVERSACIÓN Y CIFRADO
@@ -89,18 +89,18 @@ export default function ChatPage() {
         mensajes: encrypted,
         id: new Date().toISOString()
       });
-    } catch (e) {
-      console.error("Error guardando conversación:", e);
+    } catch {
+      console.error("Error guardando conversación:");
     }
   }, [address, messages]);
 
   useEffect(() => {
     // Solo se ejecuta en el cliente
-    const n = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
-    setNonce(n);
   }, []);
 
-  useEffect(() => { setIsMounted(true); }, []);
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
 
   const establishSessionKey = useCallback(async (): Promise<string | null> => {
     // Solo retorna una clave ficticia, sin mensajes para el usuario
@@ -115,20 +115,6 @@ export default function ChatPage() {
       establishSessionKey();
     }
   }, [isConnected, address, establishSessionKey]);
-
-  useEffect(() => {
-    if (isConnected && address) {
-      axios.get(`http://localhost:5000/files?owner=${address}`)
-        .then(res => {
-          if (res.data && res.data.files) {
-            setSavedFiles(res.data.files);
-          }
-        })
-        .catch(() => {
-          setSavedFiles([]);
-        });
-    }
-  }, [isConnected, address]);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "auto" });
@@ -197,21 +183,32 @@ export default function ChatPage() {
       setUploadingFile(true);
       try {
         for (const file of selectedFiles) {
+          if (!address) {
+            setSnackbar('Conecta tu wallet antes de subir archivos.');
+            return;
+          }
           const formData = new FormData();
           formData.append('file', file, file.name);
-          formData.append('originalFileName', file.name);
-          formData.append('fileType', file.type);
-          // Puedes agregar más metadatos si lo necesitas
-
+          formData.append('wallet', address);
+          // 1. Subir a Pinata (backend)
           const response = await axios.post('http://localhost:5000/upload', formData);
           if (response.data && response.data.ipfsUrl) {
-            // Notificar a Gemini (el backend/chatbot) que el archivo fue subido
-            await axios.post('http://localhost:5000/chat/agent', {
-              message: `He subido el archivo ${file.name}`,
-              fileUrl: response.data.ipfsUrl,
-              fileType: file.type,
-              owner: address || "",
-              savedFilesContext: savedFiles
+            // 2. Firmar el hash con la wallet
+            const ipfsHash = response.data.ipfsUrl;
+            const message = `Guardar archivo: ${ipfsHash}`;
+            let signature = null;
+            if (window.ethereum && address) {
+              signature = await window.ethereum.request({
+                method: 'personal_sign',
+                params: [message, address],
+              });
+            }
+            // 3. Guardar hash en blockchain (backend)
+            await axios.post('http://localhost:5000/api/files', {
+              ipfsHash,
+              message,
+              signature,
+              wallet: address,
             });
             setSnackbar(`Archivo "${file.name}" subido correctamente.`);
           }
@@ -219,7 +216,7 @@ export default function ChatPage() {
         setSelectedFiles([]);
         setFilePreviews([]);
         setComment("");
-      } catch (error) {
+      } catch {
         setSnackbar('Error al subir el archivo.');
       } finally {
         setUploadingFile(false);
@@ -259,19 +256,63 @@ export default function ChatPage() {
         // Siempre muestra la respuesta natural de Gemini primero
         setMessages((msgs) => [...msgs, { sender: "agente", text: parsed.respuesta || "" }]);
         if (parsed.action) {
-          // Si hay acción, llama al backend y muestra la respuesta cuando llegue
+          // Si la acción es listar_archivos, obtener archivos y actualizar savedFiles
+          if (parsed.action === 'listar_archivos') {
+            try {
+              const res = await axios.get(`http://localhost:5000/files/${address}`);
+              if (res.data && res.data.files) {
+                setSavedFiles(res.data.files);
+              } else {
+                setSavedFiles([]);
+              }
+            } catch {
+              setSavedFiles([]);
+            }
+          }
+          // Llama al backend para otras acciones si es necesario
           const backendResponse = await axios.post('http://localhost:5000/chat/agent', {
-            ...parsed,
+            action: parsed.action,
+            params: parsed.metadata,
             wallet: address || ""
           });
-          setMessages((msgs) => [...msgs, { sender: "agente", text: backendResponse.data }]);
+
+          // Procesar respuesta específica para ver_archivo
+          if (
+            parsed.action === 'ver_archivo' &&
+            backendResponse.data &&
+            typeof backendResponse.data === 'object' &&
+            backendResponse.data.success &&
+            backendResponse.data.file
+          ) {
+            // Validar que el objeto tenga los campos requeridos
+            const fileData = backendResponse.data.file;
+            if (fileData && fileData.ipfsUrl && (fileData.originalFileName || fileData.originalName) && fileData.fileType) {
+              const fileToView: SavedFile = {
+                id: fileData.id || fileData.ipfsUrl,
+                ipfsUrl: fileData.ipfsUrl,
+                originalFileName: fileData.originalFileName || fileData.originalName,
+                fileType: fileData.fileType
+              };
+              handleViewFile(fileToView);
+            } else {
+              setMessages((msgs) => [...msgs, { sender: "agente", text: "No se pudo obtener la información del archivo para previsualizar." }]);
+            }
+          } else {
+            // Para otras acciones, mostrar la respuesta del backend
+            // Si la respuesta es un objeto con error, mostrar el error
+            if (backendResponse.data && typeof backendResponse.data === 'object' && backendResponse.data.error) {
+              setMessages((msgs) => [...msgs, { sender: "agente", text: backendResponse.data.error }]);
+            } else {
+              setMessages((msgs) => [...msgs, { sender: "agente", text: backendResponse.data }]);
+            }
+          }
         }
       } else {
         // Si no es JSON, muestra solo el texto natural ANTES del bloque JSON (si lo hay)
         const textOnly = geminiResponse.split("```json")[0].trim();
         setMessages((msgs) => [...msgs, { sender: "agente", text: textOnly }]);
       }
-    } catch (error) {
+    } catch {
       setMessages((msgs) => [...msgs, {
         sender: "agente",
         text: "Lo siento, hubo un error al procesar tu mensaje. Por favor, intenta de nuevo."
@@ -302,13 +343,10 @@ export default function ChatPage() {
   };
 
   const handleViewFile = async (fileToView: SavedFile) => {
-    // Solo logs para depuración
-    console.log(`Preparando para ver ${fileToView.originalFileName}...`);
     setIsViewingFile(true);
     setViewingFileUrl(fileToView.ipfsUrl.replace('ipfs://', 'https://gateway.pinata.cloud/ipfs/'));
     setViewingFileName(fileToView.originalFileName);
     setViewingFileType(fileToView.fileType);
-    console.log(`"${fileToView.originalFileName}" está listo para previsualizar.`);
   };
 
   const handleCloseFileView = () => {
@@ -329,18 +367,53 @@ export default function ChatPage() {
   const handleDeleteFile = async (file: SavedFile) => {
     setActionLoading(file.id);
     try {
-      await axios.post('http://localhost:5000/chat/agent', {
-        message: `Elimina el archivo ${file.originalFileName}`,
-        owner: address || ""
+      // 1. Firmar el hash con la wallet
+      const hash = file.ipfsUrl;
+      const message = `Eliminar archivo: ${hash}`;
+      let signature = null;
+      if (window.ethereum && address) {
+        signature = await window.ethereum.request({
+          method: 'personal_sign',
+          params: [message, address],
+        });
+      }
+      // 2. Llamar al backend para eliminar en blockchain
+      await axios.delete(`http://localhost:5000/api/files/${encodeURIComponent(hash)}`, {
+        data: {
+          hash,
+          message,
+          signature,
+          wallet: address,
+        },
       });
       setSavedFiles(prev => prev.filter(f => f.id !== file.id));
       setSnackbar(`Archivo "${file.originalFileName}" eliminado correctamente.`);
-    } catch (error) {
+    } catch {
       setSnackbar('Error al eliminar el archivo.');
     } finally {
       setActionLoading(null);
     }
   };
+
+  // Si no hay address, mostrar mensaje y botón para conectar
+  if (!address) {
+    return (
+      <main className="w-screen h-screen flex flex-col items-center justify-center bg-gradient-to-b from-gray-900 to-black">
+        <div className="bg-gray-800 px-8 py-6 rounded-xl text-white flex flex-col items-center gap-4 shadow-lg border border-gray-700">
+          <svg className="w-10 h-10 text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 9V7a5 5 0 00-10 0v2a2 2 0 00-2 2v6a2 2 0 002 2h10a2 2 0 002-2v-6a2 2 0 00-2-2z" />
+          </svg>
+          <span className="font-mono text-lg">Wallet no conectada</span>
+          <button
+            onClick={() => window.location.href = "/"}
+            className="px-6 py-2 bg-gradient-to-r from-green-500 to-blue-600 text-white rounded-xl font-medium flex items-center gap-2 transition-all duration-300 shadow-lg hover:shadow-xl hover:from-green-600 hover:to-blue-700"
+          >
+            Conectar Wallet
+          </button>
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main className="w-screen h-screen flex flex-col bg-gradient-to-b from-gray-900 to-black relative">
@@ -382,7 +455,7 @@ export default function ChatPage() {
                       a.click();
                       a.remove();
                       window.URL.revokeObjectURL(url);
-                    } catch (error) {
+                    } catch {
                       alert('Error al descargar el archivo');
                     }
                   }}
@@ -491,7 +564,7 @@ export default function ChatPage() {
                               a.click();
                               a.remove();
                               window.URL.revokeObjectURL(url);
-                            } catch (error) {
+                            } catch {
                               alert('Error al descargar el archivo');
                             }
                           }}
@@ -572,7 +645,7 @@ export default function ChatPage() {
                               a.click();
                               a.remove();
                               window.URL.revokeObjectURL(url);
-                            } catch (error) {
+                            } catch {
                               alert('Error al descargar el archivo');
                             } finally {
                               setActionLoading(null);

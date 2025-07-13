@@ -307,25 +307,9 @@ app.get('/health', (req, res) => {
   res.status(200).json({ status: 'OK', timestamp: new Date().toISOString() });
 });
 
-// Inicializar servidor
-async function startServer() {
-  try {
-    // Verificar conexión a la base de datos
-    await prisma.$connect();
-    console.log('✅ Conectado a la base de datos SQLite');
-
-    app.listen(port, () => {
-      console.log(`🚀 Servidor corriendo en puerto ${port}`);
-      console.log(`📁 Base de datos: SQLite con Prisma`);
-      console.log(`🌐 CORS origin: ${process.env.FRONTEND_URL || 'http://localhost:3000'}`);
-    });
-  } catch (error) {
-    console.error('❌ Error al iniciar servidor:', error);
-    process.exit(1);
-  }
-}
-
-startServer();
+// Eliminar función startServer y su llamada
+// exportar app si se requiere para tests o importaciones
+export default app;
 
 // Manejo graceful de cierre
 process.on('SIGINT', async () => {

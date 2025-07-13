@@ -3,6 +3,7 @@
 // =======================
 import { express, Request, Response, cors, multer, dotenv, axios, path, fs, fsSync, CryptoJS, prisma } from "./imports";
 import fileVaultRouter from "./internal/http/filevault/routes";
+import { getFiles } from "./contract";
 
 // =======================
 // INTERFACES Y TIPOS
@@ -37,11 +38,87 @@ dotenv.config();
 const app: express.Application = express();
 const port = process.env.PORT || 5000;
 app.use(cors({ origin: 'http://localhost:3000' }));
-app.use(express.json());
 const upload = multer();
 
 // Montar endpoints de blockchain
 app.use("/api/files", fileVaultRouter);
+
+// =======================
+// ENDPOINTS DE ARCHIVOS
+// =======================
+// Subir archivo a Pinata y guardar en BD
+app.post('/upload', upload.single('file'), async (req: Request, res: Response) => {
+  // LOGS DE DEPURACIÓN
+  console.log('req.body:', req.body);
+  console.log('req.file:', req.file);
+  if (!req.file) {
+    res.status(400).json({ error: 'No se proporcionó ningún archivo.' });
+    return;
+  }
+  const pinataJWT = process.env.PINATA_JWT;
+  if (!pinataJWT) {
+    res.status(500).json({ error: 'La clave de API de Pinata no está configurada en el servidor.' });
+    return;
+  }
+  const { wallet } = req.body;
+  if (!wallet) {
+    res.status(400).json({ error: 'Falta la wallet.' });
+    return;
+  }
+  // Tomar nombre y tipo del archivo desde req.file
+  const originalFileName = req.file.originalname;
+  const fileType = req.file.mimetype;
+  // Buscar o crear usuario
+  let user = await prisma.user.findUnique({ where: { wallet: wallet.toLowerCase() } });
+  if (!user) {
+    user = await prisma.user.create({ data: { wallet: wallet.toLowerCase() } });
+  }
+  const formData = new FormData();
+  const fileBlob = new Blob([req.file.buffer], { type: req.file.mimetype });
+  formData.append('file', fileBlob, req.file.originalname);
+  try {
+    const pinataResponse = await axios.post(
+      'https://api.pinata.cloud/pinning/pinFileToIPFS',
+      formData,
+      {
+        maxBodyLength: Infinity,
+        headers: {
+          'Authorization': `Bearer ${pinataJWT}`,
+        },
+      }
+    );
+    const ipfsHash = pinataResponse.data.IpfsHash;
+    const ipfsUrl = `ipfs://${ipfsHash}`;
+    const file = await prisma.file.create({
+      data: {
+      ipfsUrl,
+        originalName: originalFileName,
+        fileType,
+        fileSize: req.file.size,
+        userId: user.id
+      }
+    });
+    res.status(200).json({ ipfsUrl, file });
+  } catch (error) {
+    console.error('Error al subir archivo a Pinata desde el backend:', error);
+    res.status(500).json({ error: 'Error al subir el archivo a IPFS.' });
+  }
+});
+
+// Listar archivos guardados (de todos los usuarios)
+app.get('/files', async (req, res) => {
+  const files = await prisma.file.findMany();
+  if (files.length > 0) {
+    const fileNamesList = files.map((f: any) => `- ${f.originalName}`).join("\n");
+    const responseToUser = `Estos son sus archivos guardados:\n${fileNamesList}\nPuedes previsualizar o eliminar cualquier archivo solicitándolo.`;
+    res.status(200).json({ message: responseToUser });
+  } else {
+    res.status(200).json({ message: "No tienes archivos guardados por ahora." });
+  }
+});
+
+// Mover express.json() aquí para que no interfiera con multer
+app.use(express.json());
 
 // =======================
 // ENDPOINTS DE CONVERSACIONES
@@ -98,74 +175,6 @@ app.get('/conversations/:wallet', async (req: Request, res: Response) => {
 });
 
 // =======================
-// ENDPOINTS DE ARCHIVOS
-// =======================
-// Subir archivo a Pinata y guardar en BD
-app.post('/upload', upload.single('file'), async (req: Request, res: Response) => {
-  if (!req.file) {
-    res.status(400).json({ error: 'No se proporcionó ningún archivo.' });
-    return;
-  }
-  const pinataJWT = process.env.PINATA_JWT;
-  if (!pinataJWT) {
-    res.status(500).json({ error: 'La clave de API de Pinata no está configurada en el servidor.' });
-    return;
-  }
-  const { originalFileName, fileType, wallet } = req.body;
-  if (!originalFileName || !fileType || !wallet) {
-    res.status(400).json({ error: 'Faltan metadatos esenciales para el archivo (nombre, tipo o wallet).' });
-    return;
-  }
-  // Buscar o crear usuario
-  let user = await prisma.user.findUnique({ where: { wallet: wallet.toLowerCase() } });
-  if (!user) {
-    user = await prisma.user.create({ data: { wallet: wallet.toLowerCase() } });
-  }
-  const formData = new FormData();
-  const fileBlob = new Blob([req.file.buffer], { type: req.file.mimetype });
-  formData.append('file', fileBlob, req.file.originalname);
-  try {
-    const pinataResponse = await axios.post(
-      'https://api.pinata.cloud/pinning/pinFileToIPFS',
-      formData,
-      {
-        maxBodyLength: Infinity,
-        headers: {
-          'Authorization': `Bearer ${pinataJWT}`,
-        },
-      }
-    );
-    const ipfsHash = pinataResponse.data.IpfsHash;
-    const ipfsUrl = `ipfs://${ipfsHash}`;
-    const file = await prisma.file.create({
-      data: {
-      ipfsUrl,
-        originalName: originalFileName,
-        fileType,
-        fileSize: req.file.size,
-        userId: user.id
-      }
-    });
-    res.status(200).json({ ipfsUrl, file });
-  } catch (error) {
-    console.error('Error al subir archivo a Pinata desde el backend:', error);
-    res.status(500).json({ error: 'Error al subir el archivo a IPFS.' });
-  }
-});
-
-// Listar archivos guardados (de todos los usuarios)
-app.get('/files', async (req, res) => {
-  const files = await prisma.file.findMany();
-  if (files.length > 0) {
-    const fileNamesList = files.map((f: any) => `- ${f.originalName}`).join("\n");
-    const responseToUser = `Estos son sus archivos guardados:\n${fileNamesList}\nPuedes previsualizar o eliminar cualquier archivo solicitándolo.`;
-    res.status(200).json({ message: responseToUser });
-  } else {
-    res.status(200).json({ message: "No tienes archivos guardados por ahora." });
-  }
-});
-
-// =======================
 // ENDPOINTS DE AGENTE Y ACCIONES
 // =======================
 // Procesa acciones del agente Gemini
@@ -212,17 +221,86 @@ app.post('/chat/agent', express.json(), async (req: Request, res: Response): Pro
       }
       case 'ver_archivo':
       case 'viewsavedfile': {
-        const { fileId } = params || {};
-        if (!fileId) {
-          result = 'No se proporcionó el ID del archivo.';
+        const { fileId, fileName } = params || {};
+        if (!fileId && !fileName) {
+          result = { success: false, error: 'No se proporcionó el ID o nombre del archivo.' };
           break;
         }
-        const file = await prisma.file.findUnique({ where: { id: fileId } });
-        if (!file) {
-          result = 'Archivo no encontrado.';
+        
+        // Si se proporciona fileId, buscar directamente en la base de datos
+        if (fileId) {
+          const file = await prisma.file.findUnique({ where: { id: fileId } });
+          if (!file) {
+            result = { success: false, error: 'Archivo no encontrado.' };
+            break;
+          }
+          result = { 
+            success: true, 
+            file: {
+              id: file.id,
+              ipfsUrl: file.ipfsUrl,
+              originalFileName: file.originalName,
+              fileType: file.fileType
+            }
+          };
           break;
         }
-        result = `Aquí tienes el archivo '${file.originalName}': ${file.ipfsUrl}`;
+        
+        // Si se proporciona fileName, buscar en la blockchain y Pinata
+        if (fileName) {
+          // 1. Obtener los hashes de la blockchain para la wallet
+          const hashes = await getFiles(wallet);
+          // 2. Consultar a Pinata/IPFS para obtener metadatos y buscar el archivo por nombre
+          let foundFile = null;
+          let matches = [];
+          const fileNameLower = fileName.toLowerCase();
+          const hasExtension = fileName.includes('.') && fileName.split('.').pop().length <= 5;
+          for (const hash of hashes) {
+            try {
+              const url = `https://gateway.pinata.cloud/ipfs/${hash.replace('ipfs://', '')}`;
+              const head = await fetch(url, { method: 'HEAD' });
+              const pinataName = head.headers.get('x-pinata-metadata') || '';
+              const contentType = head.headers.get('content-type') || 'desconocido';
+              if (hasExtension) {
+                // Coincidencia exacta (nombre completo)
+                if (pinataName.toLowerCase() === fileNameLower) {
+                  foundFile = {
+                    id: hash,
+                    ipfsUrl: hash,
+                    originalFileName: pinataName,
+                    fileType: contentType
+                  };
+                  break;
+                }
+              } else {
+                // Coincidencia parcial (sin extensión)
+                if (pinataName.toLowerCase().startsWith(fileNameLower)) {
+                  matches.push({
+                    id: hash,
+                    ipfsUrl: hash,
+                    originalFileName: pinataName,
+                    fileType: contentType
+                  });
+                }
+              }
+            } catch {}
+          }
+          if (!foundFile && matches.length === 1) {
+            foundFile = matches[0];
+          }
+          if (!foundFile && matches.length > 1) {
+            result = { success: false, error: `Se encontraron varios archivos que comienzan con '${fileName}'. Por favor, especifica el nombre completo con extensión: ${matches.map(f => f.originalFileName).join(', ')}` };
+            break;
+          }
+          if (!foundFile) {
+            result = { success: false, error: 'Archivo no encontrado en tu bóveda.' };
+            break;
+          }
+          result = { success: true, file: foundFile };
+          break;
+        }
+        
+        result = { success: false, error: 'Parámetros inválidos para ver archivo.' };
         break;
       }
       case 'descargar_archivo':
@@ -303,15 +381,43 @@ app.post('/api/gemini', express.json(), (req: Request, res: Response) => {
       return res.status(500).json({ error: 'No hay API Key de Gemini configurada.' });
     }
     // Leer prompt base desde README
-    const promptPath = path.join(__dirname, 'agent', 'prompt', 'README.md');
+    const promptPath = path.join(process.cwd(), 'src', 'agent', 'prompt', 'README.md');
+    const instructionsPath = path.join(process.cwd(), 'src', 'agent', 'instructions', 'README.md');
     let promptBase = '';
+    let instructions = '';
     try {
       promptBase = fsSync.readFileSync(promptPath, 'utf8');
     } catch (e) {
       promptBase = 'Eres un asistente para gestión de archivos en bóveda blockchain.';
     }
-    // Concatenar prompt base con el input del usuario
-    const prompt = `${promptBase}\n\nUsuario: ${input}`;
+    try {
+      instructions = fsSync.readFileSync(instructionsPath, 'utf8');
+    } catch (e) {
+      instructions = '';
+    }
+    // Obtener conversación previa de la base de datos (Prisma)
+    let conversationHistory = '';
+    if (wallet) {
+      try {
+        const user = await prisma.user.findUnique({
+          where: { wallet: wallet.toLowerCase() },
+          include: { conversations: true }
+        });
+        if (user && user.conversations.length > 0) {
+          // Tomar la última conversación
+          const lastConv = user.conversations[user.conversations.length - 1];
+          // Descifrar mensajes
+          const key = deriveKeyFromWallet(wallet);
+          const mensajes = decryptMessages(lastConv.messages, key);
+          // Formatear historial para el prompt
+          conversationHistory = '\n\n---\n\nHistorial de conversación previa:\n' + mensajes.map((m: any) => `${m.rol === 'usuario' ? 'Usuario' : 'Gemini'}: ${m.mensaje}`).join('\n');
+        }
+      } catch (e) {
+        conversationHistory = '';
+      }
+    }
+    // Concatenar prompt base, instrucciones, historial (si existe) y el input del usuario
+    const prompt = `${promptBase}\n\n${instructions}${conversationHistory}\n\nUsuario: ${input}`;
     const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
     const body = {
       contents: [{ parts: [{ text: prompt }] }]
