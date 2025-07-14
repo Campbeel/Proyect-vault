@@ -39,7 +39,7 @@ export async function uploadToPinata(
   metadata?: PinataMetadata,
   jwt?: string
 ): Promise<string> {
-  try {
+      try {
     // Crear FormData con el archivo
     const formData = new FormData();
     formData.append('file', file);

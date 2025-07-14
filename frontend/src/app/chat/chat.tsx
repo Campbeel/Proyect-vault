@@ -11,9 +11,9 @@ import {
   useState,
   useCallback,
   axios,
-  useDisconnect,
-  CryptoJS
+  useDisconnect
 } from "../../imports";
+import React from "react";
 
 // =======================
 // TIPOS Y MODELOS
@@ -21,13 +21,19 @@ import {
 interface Message {
   sender: "user" | "agente";
   text?: string;
-  fileUrl?: string; // Mantener para compatibilidad de visualización si es necesario
-  fileType?: string; // Mantener para compatibilidad de visualización si es necesario
-  savedFileId?: string; // ID para vincular con un archivo guardado en el estado `savedFiles`
+  fileUrl?: string;
+  fileType?: string;
+  savedFileId?: string;
+  downloadInfo?: {
+    gatewayUrl: string;
+    originalName: string;
+    isAvailable: boolean;
+    warning?: string;
+  };
 }
 
 interface SavedFile {
-  id: string; // Un ID único para el archivo guardado
+  id: string;
   ipfsUrl: string;
   originalFileName: string;
   fileType: string;
@@ -38,9 +44,34 @@ interface SavedFile {
 // =======================
 function Snackbar({ message, onClose }: { message: string, onClose: () => void }) {
   return (
-    <div className="fixed bottom-8 left-1/2 transform -translate-x-1/2 bg-green-600 text-white px-6 py-3 rounded-xl shadow-lg z-50 animate-fade-in">
+    <div
+      style={{
+        position: "fixed",
+        bottom: "2rem",
+        left: "50%",
+        transform: "translateX(-50%)",
+        background: "#16a34a",
+        color: "white",
+        padding: "12px 24px",
+        borderRadius: "1rem",
+        boxShadow: "0 2px 12px rgba(0,0,0,0.15)",
+        zIndex: 50,
+        fontWeight: 600,
+        fontSize: "1rem"
+      }}
+    >
       {message}
-      <button className="ml-4 text-white font-bold" onClick={onClose}>X</button>
+      <button
+        style={{
+          marginLeft: "16px",
+          color: "white",
+          fontWeight: "bold",
+          background: "none",
+          border: "none",
+          cursor: "pointer"
+        }}
+        onClick={onClose}
+      >X</button>
     </div>
   );
 }
@@ -66,48 +97,39 @@ export default function ChatPage() {
   const [comment, setComment] = useState<string>("");
   const [savedFiles, setSavedFiles] = useState<SavedFile[]>([]);
   const [uploadingFile, setUploadingFile] = useState<boolean>(false);
-  const [isViewingFile, setIsViewingFile] = useState<boolean>(false);
+  const [isViewingFile, setIsViewingFile] = useState(false);
   const [viewingFileUrl, setViewingFileUrl] = useState<string | null>(null);
   const [viewingFileName, setViewingFileName] = useState<string | null>(null);
   const [viewingFileType, setViewingFileType] = useState<string | null>(null);
+  const [fileAvailability, setFileAvailability] = useState<{
+    isAvailable: boolean;
+    warning?: string;
+  } | null>(null);
   const [isMounted, setIsMounted] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [snackbar, setSnackbar] = useState<string | null>(null);
-  // Estado para wallet
 
   // =======================
   // FUNCIONES DE CONVERSACIÓN Y CIFRADO
   // =======================
-  // Guarda la conversación cifrada en el backend
   const saveConversation = useCallback(async () => {
     if (!address || messages.length === 0) return;
     try {
-      const key = address;
-      const encrypted = CryptoJS.AES.encrypt(JSON.stringify(messages), key).toString();
       await axios.post("http://localhost:5000/conversations", {
         wallet: address,
-        mensajes: encrypted,
-        id: new Date().toISOString()
+        mensajes: messages
       });
     } catch {
       console.error("Error guardando conversación:");
     }
   }, [address, messages]);
 
-  useEffect(() => {
-    // Solo se ejecuta en el cliente
-  }, []);
-
-  useEffect(() => {
-    setIsMounted(true);
-  }, []);
+  useEffect(() => {}, []);
+  useEffect(() => { setIsMounted(true); }, []);
 
   const establishSessionKey = useCallback(async (): Promise<string | null> => {
-    // Solo retorna una clave ficticia, sin mensajes para el usuario
-    if (!address) {
-      return null;
-    }
-    return "dummy-session-key"; // Clave ficticia
+    if (!address) return null;
+    return "dummy-session-key";
   }, [address]);
 
   useEffect(() => {
@@ -120,27 +142,65 @@ export default function ChatPage() {
     chatEndRef.current?.scrollIntoView({ behavior: "auto" });
   }, [messages]);
 
+  const handleViewFile = useCallback(async (fileToView: SavedFile) => {
+    setIsViewingFile(true);
+    setFileAvailability(null);
+    try {
+      const hash = fileToView.ipfsUrl.replace('ipfs://', '');
+      const response = await axios.get(`http://localhost:5000/api/files/hash/${hash}?wallet=${address}`);
+      if (response.data && response.data.success) {
+        const fileData = response.data.file;
+        setViewingFileUrl(fileData.gatewayUrl);
+        setViewingFileName(fileData.originalFileName);
+        setViewingFileType(fileData.fileType);
+        setFileAvailability({
+          isAvailable: fileData.isAvailable,
+          warning: fileData.warning
+        });
+        if (!fileData.isAvailable) {
+          setSnackbar(`Advertencia: El archivo "${fileData.originalFileName}" puede no estar disponible en este momento.`);
+        }
+      } else {
+        setViewingFileUrl(fileToView.ipfsUrl.replace('ipfs://', 'https://gateway.pinata.cloud/ipfs/'));
+        setViewingFileName(fileToView.originalFileName);
+        setViewingFileType(fileToView.fileType);
+        setFileAvailability({
+          isAvailable: false,
+          warning: 'No se pudo verificar la disponibilidad del archivo.'
+        });
+        setSnackbar('Advertencia: No se pudo verificar la disponibilidad del archivo.');
+      }
+    } catch (error) {
+      console.error('Error al verificar archivo:', error);
+      setViewingFileUrl(fileToView.ipfsUrl.replace('ipfs://', 'https://gateway.pinata.cloud/ipfs/'));
+      setViewingFileName(fileToView.originalFileName);
+      setViewingFileType(fileToView.fileType);
+      setFileAvailability({
+        isAvailable: false,
+        warning: 'Error al verificar el archivo. Intentando mostrar con datos locales.'
+      });
+      setSnackbar('Error al verificar el archivo. Intentando mostrar con datos locales.');
+    }
+  }, [address]);
+
   useEffect(() => {
     const lastMsg = messages[messages.length - 1];
     if (lastMsg && lastMsg.sender === 'agente' && lastMsg.text) {
-      let fileName = null;
-      // Detectar frases comunes para ver o descargar archivos
-      if (lastMsg.text.includes('Preparando previsualización de')) {
+      let fileName: string | null = null;
+      if (typeof lastMsg.text === 'string' && lastMsg.text.includes('Preparando previsualización de')) {
         const match = lastMsg.text.match(/Preparando previsualización de\s*"([^"]+)"/);
-        if (match) fileName = match[1];
-      } else if (lastMsg.text.includes('Puedes descargar')) {
+        if (match) fileName = match[1] || null;
+      } else if (typeof lastMsg.text === 'string' && lastMsg.text.includes('Puedes descargar')) {
         const match = lastMsg.text.match(/Puedes descargar\s*"([^"]+)"/);
-        if (match) fileName = match[1];
-      } else if (/mu[ée]strame|muestrame|necesito ver|quiero ver el contenido|quiero descargar/i.test(lastMsg.text)) {
-        // Buscar el nombre del archivo entre comillas o después de la frase
+        if (match) fileName = match[1] || null;
+      } else if (typeof lastMsg.text === 'string' && /mu[ée]strame|muestrame|necesito ver|quiero ver el contenido|quiero descargar/i.test(lastMsg.text)) {
         const match = lastMsg.text.match(/(?:mu[ée]strame|muestrame|necesito ver|quiero ver el contenido|quiero descargar)[^\w\d]*"([^"]+)"|(?:mu[ée]strame|muestrame|necesito ver|quiero ver el contenido|quiero descargar)[^\w\d]*([\w\d\.\-\s]+\.[a-zA-Z0-9]+)/i);
-        if (match) fileName = match[1] || match[2];
-        if (fileName) fileName = fileName.trim();
+        if (match) fileName = (match[1] || match[2]) || null;
+        if (typeof fileName === "string") fileName = fileName.trim();
       }
       if (fileName) {
         const file = savedFiles.find(f => f.originalFileName === fileName);
         if (file) {
-          // Elimina mensajes innecesarios del agente si el archivo existe
           const mensajesInnecesarios = [
             'necesito su',
             'nombre exacto',
@@ -170,7 +230,7 @@ export default function ChatPage() {
         }
       }
     }
-  }, [messages, savedFiles]);
+  }, [messages, savedFiles, handleViewFile]);
 
   if (!isMounted) return null;
 
@@ -190,20 +250,17 @@ export default function ChatPage() {
           const formData = new FormData();
           formData.append('file', file, file.name);
           formData.append('wallet', address);
-          // 1. Subir a Pinata (backend)
           const response = await axios.post('http://localhost:5000/upload', formData);
           if (response.data && response.data.ipfsUrl) {
-            // 2. Firmar el hash con la wallet
             const ipfsHash = response.data.ipfsUrl;
             const message = `Guardar archivo: ${ipfsHash}`;
             let signature = null;
             if (window.ethereum && address) {
-              signature = await window.ethereum.request({
+              signature = await (window.ethereum as any).request({
                 method: 'personal_sign',
                 params: [message, address],
               });
             }
-            // 3. Guardar hash en blockchain (backend)
             await axios.post('http://localhost:5000/api/files', {
               ipfsHash,
               message,
@@ -228,12 +285,9 @@ export default function ChatPage() {
     setMessages((msgs) => [...msgs, { sender: "user", text: input }]);
     setInput("");
     try {
-      // 1. Llamar a Gemini (simulado aquí como ejemplo)
-      // Reemplaza esto por la llamada real a Gemini si tienes API
       const geminiResponse = await geminiApi(input, address);
 
       function extractJsonFromGeminiResponse(response: string) {
-        // Busca bloque ```json ... ```
         const match = response.match(/```json\s*([\s\S]+?)```/i);
         if (match) {
           try {
@@ -242,7 +296,6 @@ export default function ChatPage() {
             return null;
           }
         }
-        // Si no hay bloque, intenta parsear todo como JSON
         try {
           return JSON.parse(response);
         } catch {
@@ -253,10 +306,8 @@ export default function ChatPage() {
       const parsed = extractJsonFromGeminiResponse(geminiResponse);
 
       if (parsed && typeof parsed === 'object' && 'action' in parsed) {
-        // Siempre muestra la respuesta natural de Gemini primero
         setMessages((msgs) => [...msgs, { sender: "agente", text: parsed.respuesta || "" }]);
         if (parsed.action) {
-          // Si la acción es listar_archivos, obtener archivos y actualizar savedFiles
           if (parsed.action === 'listar_archivos') {
             try {
               const res = await axios.get(`http://localhost:5000/files/${address}`);
@@ -269,14 +320,12 @@ export default function ChatPage() {
               setSavedFiles([]);
             }
           }
-          // Llama al backend para otras acciones si es necesario
           const backendResponse = await axios.post('http://localhost:5000/chat/agent', {
             action: parsed.action,
             params: parsed.metadata,
             wallet: address || ""
           });
 
-          // Procesar respuesta específica para ver_archivo
           if (
             parsed.action === 'ver_archivo' &&
             backendResponse.data &&
@@ -284,7 +333,6 @@ export default function ChatPage() {
             backendResponse.data.success &&
             backendResponse.data.file
           ) {
-            // Validar que el objeto tenga los campos requeridos
             const fileData = backendResponse.data.file;
             if (fileData && fileData.ipfsUrl && (fileData.originalFileName || fileData.originalName) && fileData.fileType) {
               const fileToView: SavedFile = {
@@ -298,17 +346,16 @@ export default function ChatPage() {
               setMessages((msgs) => [...msgs, { sender: "agente", text: "No se pudo obtener la información del archivo para previsualizar." }]);
             }
           } else {
-            // Para otras acciones, mostrar la respuesta del backend
-            // Si la respuesta es un objeto con error, mostrar el error
             if (backendResponse.data && typeof backendResponse.data === 'object' && backendResponse.data.error) {
               setMessages((msgs) => [...msgs, { sender: "agente", text: backendResponse.data.error }]);
+            } else if (backendResponse.data && typeof backendResponse.data === 'object' && backendResponse.data.message) {
+              setMessages((msgs) => [...msgs, { sender: "agente", text: backendResponse.data.message, downloadInfo: backendResponse.data.downloadInfo }]);
             } else {
-              setMessages((msgs) => [...msgs, { sender: "agente", text: backendResponse.data }]);
+              setMessages((msgs) => [...msgs, { sender: "agente", text: String(backendResponse.data) }]);
             }
           }
         }
       } else {
-        // Si no es JSON, muestra solo el texto natural ANTES del bloque JSON (si lo hay)
         const textOnly = geminiResponse.split("```json")[0].trim();
         setMessages((msgs) => [...msgs, { sender: "agente", text: textOnly }]);
       }
@@ -325,28 +372,19 @@ export default function ChatPage() {
     const files = event.target.files;
     if (files && files.length > 0) {
       const newSelectedFiles = Array.from(files);
-      setSelectedFiles((prevFiles) => [...prevFiles, ...newSelectedFiles]); // Añadir nuevos archivos
-
+      setSelectedFiles((prevFiles) => [...prevFiles, ...newSelectedFiles]);
       newSelectedFiles.forEach(file => {
         const reader = new FileReader();
         reader.onloadend = () => {
-          setFilePreviews((prevPreviews) => [...prevPreviews, reader.result as string]); // Añadir nuevas previsualizaciones
+          setFilePreviews((prevPreviews) => [...prevPreviews, reader.result as string]);
         };
         reader.readAsDataURL(file);
       });
-      // Limpiar el input para que el mismo archivo pueda ser seleccionado de nuevo
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
       }
-      setInput(""); // Limpiar el input de texto principal al seleccionar un archivo
+      setInput("");
     }
-  };
-
-  const handleViewFile = async (fileToView: SavedFile) => {
-    setIsViewingFile(true);
-    setViewingFileUrl(fileToView.ipfsUrl.replace('ipfs://', 'https://gateway.pinata.cloud/ipfs/'));
-    setViewingFileName(fileToView.originalFileName);
-    setViewingFileType(fileToView.fileType);
   };
 
   const handleCloseFileView = () => {
@@ -354,59 +392,131 @@ export default function ChatPage() {
     setViewingFileUrl(null);
     setViewingFileName(null);
     setViewingFileType(null);
+    setFileAvailability(null);
   };
 
-  // Handler para desconectar y volver a la landing
   const handleDisconnect = async () => {
     await saveConversation();
     disconnect();
     router.push("/");
   };
 
-  // Eliminar archivo
   const handleDeleteFile = async (file: SavedFile) => {
     setActionLoading(file.id);
     try {
-      // 1. Firmar el hash con la wallet
       const hash = file.ipfsUrl;
       const message = `Eliminar archivo: ${hash}`;
-      let signature = null;
       if (window.ethereum && address) {
-        signature = await window.ethereum.request({
+        await (window.ethereum as any).request({
           method: 'personal_sign',
           params: [message, address],
         });
       }
-      // 2. Llamar al backend para eliminar en blockchain
-      await axios.delete(`http://localhost:5000/api/files/${encodeURIComponent(hash)}`, {
-        data: {
-          hash,
-          message,
-          signature,
-          wallet: address,
-        },
+      const response = await axios.post('http://localhost:5000/chat/agent', {
+        action: 'eliminar_archivo',
+        params: { fileName: file.originalFileName },
+        wallet: address
       });
-      setSavedFiles(prev => prev.filter(f => f.id !== file.id));
-      setSnackbar(`Archivo "${file.originalFileName}" eliminado correctamente.`);
-    } catch {
+      if (response.data && response.data.success) {
+        setSavedFiles(prev => prev.filter(f => f.id !== file.id));
+        setSnackbar(response.data.message || `Archivo "${file.originalFileName}" eliminado correctamente.`);
+      } else {
+        const errorMsg = response.data?.error || 'Error al eliminar el archivo.';
+        setSnackbar(errorMsg);
+      }
+    } catch (error) {
+      console.error('Error al eliminar archivo:', error);
       setSnackbar('Error al eliminar el archivo.');
     } finally {
       setActionLoading(null);
     }
   };
 
-  // Si no hay address, mostrar mensaje y botón para conectar
+  const handleDownloadFile = async (file: SavedFile) => {
+    setActionLoading(file.id);
+    try {
+      const response = await axios.post('http://localhost:5000/chat/agent', {
+        action: 'descargar_archivo',
+        params: { fileName: file.originalFileName },
+        wallet: address
+      });
+      if (response.data && response.data.success) {
+        const downloadInfo = response.data.downloadInfo;
+        if (downloadInfo.isAvailable) {
+          const fileResponse = await fetch(downloadInfo.gatewayUrl);
+          if (!fileResponse.ok) throw new Error('No se pudo descargar el archivo');
+          const blob = await fileResponse.blob();
+          const url = window.URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = downloadInfo.originalName;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          window.URL.revokeObjectURL(url);
+          setSnackbar(`Archivo "${downloadInfo.originalName}" descargado correctamente.`);
+        } else {
+          setSnackbar(`Advertencia: ${downloadInfo.warning || 'El archivo puede no estar disponible.'}`);
+        }
+      } else {
+        const errorMsg = response.data?.error || 'Error al procesar la descarga.';
+        setSnackbar(errorMsg);
+      }
+    } catch (error) {
+      console.error('Error al descargar archivo:', error);
+      setSnackbar('Error al descargar el archivo.');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
   if (!address) {
     return (
-      <main className="w-screen h-screen flex flex-col items-center justify-center bg-gradient-to-b from-gray-900 to-black">
-        <div className="bg-gray-800 px-8 py-6 rounded-xl text-white flex flex-col items-center gap-4 shadow-lg border border-gray-700">
-          <svg className="w-10 h-10 text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 9V7a5 5 0 00-10 0v2a2 2 0 00-2 2v6a2 2 0 002 2h10a2 2 0 002-2v-6a2 2 0 00-2-2z" />
+      <main
+        style={{
+          minHeight: "100vh",
+          width: "100%",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          background: "linear-gradient(to bottom, #111827 0%, #000 100%)"
+        }}
+      >
+        <div
+          style={{
+            background: "#1f2937",
+            padding: "32px",
+            borderRadius: "18px",
+            color: "white",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            gap: "16px",
+            boxShadow: "0 2px 12px rgba(0,0,0,0.15)",
+            border: "1px solid #374151"
+          }}
+        >
+          <svg width="40" height="40" fill="none" stroke="#facc15" strokeWidth="2" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M17 9V7a5 5 0 00-10 0v2a2 2 0 00-2 2v6a2 2 0 002 2h10a2 2 0 002-2v-6a2 2 0 00-2-2z" />
           </svg>
-          <span className="font-mono text-lg">Wallet no conectada</span>
+          <span style={{ fontFamily: "monospace", fontSize: "1.125rem" }}>Wallet no conectada</span>
           <button
             onClick={() => window.location.href = "/"}
-            className="px-6 py-2 bg-gradient-to-r from-green-500 to-blue-600 text-white rounded-xl font-medium flex items-center gap-2 transition-all duration-300 shadow-lg hover:shadow-xl hover:from-green-600 hover:to-blue-700"
+            style={{
+              padding: "12px 32px",
+              background: "linear-gradient(to right, #22d3ee, #6366f1)",
+              color: "white",
+              borderRadius: "12px",
+              fontWeight: 500,
+              fontSize: "1rem",
+              border: "none",
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+              boxShadow: "0 2px 8px rgba(0,0,0,0.15)"
+            }}
           >
             Conectar Wallet
           </button>
@@ -416,275 +526,111 @@ export default function ChatPage() {
   }
 
   return (
-    <main className="w-screen h-screen flex flex-col bg-gradient-to-b from-gray-900 to-black relative">
-      {/* Botón de desconexión arriba a la derecha */}
-      <div className="absolute top-6 right-8 z-50">
+    <main
+      style={{
+        minHeight: "100vh",
+        width: "100%",
+        display: "flex",
+        flexDirection: "column",
+        background: "linear-gradient(to bottom, #111827 0%, #000 100%)",
+        position: "relative"
+      }}
+    >
+      {/* Botón de desconexión */}
+      <div style={{ position: "absolute", top: 24, right: 32, zIndex: 50 }}>
         <button
           onClick={handleDisconnect}
-          className="flex items-center gap-2 px-5 py-2 bg-gradient-to-r from-red-500 to-pink-600 text-white rounded-xl font-medium shadow-lg hover:from-red-600 hover:to-pink-700 transition-all duration-300 hover:scale-105"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "8px",
+            padding: "8px 20px",
+            background: "linear-gradient(to right, #ef4444, #ec4899)",
+            color: "white",
+            borderRadius: "12px",
+            fontWeight: 500,
+            border: "none",
+            cursor: "pointer",
+            boxShadow: "0 2px 8px rgba(0,0,0,0.15)"
+          }}
         >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg width="20" height="20" fill="none" stroke="white" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a2 2 0 01-2 2H7a2 2 0 01-2-2V7a2 2 0 012-2h4a2 2 0 012 2v1" />
           </svg>
           Desconectar
         </button>
       </div>
-      {isViewingFile && viewingFileUrl && (
-        <div className="fixed inset-0 bg-black bg-opacity-90 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
-          <div className="bg-gray-800 rounded-xl shadow-2xl overflow-hidden flex flex-col max-w-4xl w-full h-full border border-gray-700">
-            <div className="flex justify-between items-center p-4 border-b border-gray-700 bg-gray-900">
-              <h3 className="text-lg font-semibold text-white truncate flex items-center gap-2">
-                <svg className="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                </svg>
-                {viewingFileName}
-              </h3>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={async () => {
-                    if (!viewingFileUrl || !viewingFileName) return;
-                    try {
-                      const response = await fetch(viewingFileUrl);
-                      if (!response.ok) throw new Error('No se pudo descargar el archivo');
-                      const blob = await response.blob();
-                      const url = window.URL.createObjectURL(blob);
-                      const a = document.createElement('a');
-                      a.href = url;
-                      a.download = viewingFileName;
-                      document.body.appendChild(a);
-                      a.click();
-                      a.remove();
-                      window.URL.revokeObjectURL(url);
-                    } catch {
-                      alert('Error al descargar el archivo');
-                    }
-                  }}
-                  className="text-white bg-blue-600 hover:bg-blue-700 transition-colors px-3 py-1 rounded-lg flex items-center gap-1"
-                  title="Descargar archivo"
-                >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                  </svg>
-                  Descargar
-                </button>
-                {/* Botón Eliminar */}
-                {viewingFileName && (
-                  <button
-                    onClick={async () => {
-                      const file = savedFiles.find(f => f.originalFileName === viewingFileName);
-                      if (file) {
-                        await handleDeleteFile(file);
-                        handleCloseFileView();
-                      }
-                    }}
-                    className="text-white bg-red-600 hover:bg-red-700 transition-colors px-3 py-1 rounded-lg flex items-center gap-1"
-                    title="Eliminar archivo"
-                  >
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                    Eliminar
-                  </button>
-                )}
-              <button
-                onClick={handleCloseFileView}
-                  className="text-gray-400 hover:text-white transition-colors duration-200 p-2 hover:bg-gray-700 rounded-full"
-                  title="Cerrar previsualización"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-              </div>
-            </div>
-            <div className="flex-1 flex items-center justify-center p-4 bg-gray-900">
-              {viewingFileType?.startsWith('image/') && (
-                <img src={viewingFileUrl} alt={viewingFileName || "Previsualización de imagen"} className="max-w-full max-h-full object-contain rounded-lg shadow-lg" />
-              )}
-              {viewingFileType === 'application/pdf' && (
-                <iframe src={viewingFileUrl} className="w-full h-full border-0 rounded-lg shadow-lg" title="Previsualización de PDF"></iframe>
-              )}
-              {viewingFileType?.startsWith('text/') && (
-                <iframe src={viewingFileUrl} className="w-full h-full border-0 rounded-lg shadow-lg" title="Previsualización de texto"></iframe>
-              )}
-              {viewingFileType && !viewingFileType.startsWith('image/') && viewingFileType !== 'application/pdf' && !viewingFileType.startsWith('text/') && (
-                <div className="text-white text-center p-6 bg-gray-800 rounded-xl shadow-lg">
-                  <svg className="w-16 h-16 text-gray-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                  </svg>
-                  <p className="mb-4 text-lg">No se puede previsualizar este tipo de archivo ({viewingFileType})</p>
-                  <span className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg cursor-not-allowed opacity-60">
-                    <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                    </svg>
-                    Descargar desde la barra superior
-                  </span>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
 
-      <div className="flex-1 overflow-y-auto p-6 space-y-4">
+      {/* Mensajes */}
+      <div style={{
+        flex: 1,
+        overflowY: "auto",
+        padding: "24px",
+        display: "flex",
+        flexDirection: "column",
+        gap: "16px"
+      }}>
         {messages.map((msg, idx) => (
           <div
             key={idx}
-            className={`w-full flex ${msg.sender === "user" ? "justify-end" : "justify-start"}`}
+            style={{
+              width: "100%",
+              display: "flex",
+              justifyContent: msg.sender === "user" ? "flex-end" : "flex-start"
+            }}
           >
             <div
-              className={`px-4 py-3 rounded-2xl max-w-[80%] ${
-                msg.sender === "user" 
-                  ? "bg-green-600 text-white ml-4" 
-                  : "bg-gray-800 text-white mr-4"
-              } ${msg.fileUrl || msg.savedFileId ? 'max-w-xs' : ''}`}
+              style={{
+                padding: "12px 16px",
+                borderRadius: "18px",
+                maxWidth: msg.fileUrl || msg.savedFileId ? "320px" : "80%",
+                background: msg.sender === "user" ? "#16a34a" : "#27272a",
+                color: "white",
+                marginLeft: msg.sender === "user" ? "16px" : "0",
+                marginRight: msg.sender === "user" ? "0" : "16px",
+                marginTop: "4px",
+                marginBottom: "4px",
+                wordBreak: "break-word"
+              }}
             >
-              {msg.sender === 'agente' && msg.text && msg.text.includes('/download-file?fileId=') ? (
-                (() => {
-                  // Extraer el fileId del enlace
-                  const match = msg.text.match(/\/download-file\?fileId=([^\s]+)/);
-                  const fileId = match ? decodeURIComponent(match[1]) : null;
-                  // Buscar el archivo en savedFiles
-                  const file = fileId ? savedFiles.find(f => f.ipfsUrl === fileId) : null;
-                  return (
-                    <div>
-                      {/* Solo mostrar el botón, no el link */}
-                      {file && (
-                        <button
-                          onClick={async () => {
-                            try {
-                              const response = await fetch(file.ipfsUrl.replace('ipfs://', 'https://gateway.pinata.cloud/ipfs/'));
-                              if (!response.ok) throw new Error('No se pudo descargar el archivo');
-                              const blob = await response.blob();
-                              const url = window.URL.createObjectURL(blob);
-                              const a = document.createElement('a');
-                              a.href = url;
-                              a.download = file.originalFileName;
-                              document.body.appendChild(a);
-                              a.click();
-                              a.remove();
-                              window.URL.revokeObjectURL(url);
-                            } catch {
-                              alert('Error al descargar el archivo');
-                            }
-                          }}
-                          className="ml-4 px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors text-xs"
-                        >
-                          Descargar archivo
-                        </button>
-                      )}
-                    </div>
-                  );
-                })()
+              {typeof msg.text === 'string' ? (
+                <>
+                  <span style={{ whiteSpace: 'pre-line' }}>{msg.text}</span>
+                  {msg.downloadInfo && (
+                    <button
+                      onClick={async () => {
+                        if (msg.downloadInfo?.isAvailable) {
+                          const fileResponse = await fetch(msg.downloadInfo?.gatewayUrl);
+                          const blob = await fileResponse.blob();
+                          const url = window.URL.createObjectURL(blob);
+                          const a = document.createElement('a');
+                          a.href = url;
+                          a.download = msg.downloadInfo?.originalName;
+                          document.body.appendChild(a);
+                          a.click();
+                          a.remove();
+                          window.URL.revokeObjectURL(url);
+                        } else {
+                          alert(msg.downloadInfo?.warning || 'El archivo no está disponible.');
+                        }
+                      }}
+                      style={{
+                        marginLeft: "8px",
+                        padding: "4px 12px",
+                        background: "#2563eb",
+                        color: "white",
+                        borderRadius: "8px",
+                        border: "none",
+                        fontSize: "0.85rem",
+                        cursor: "pointer"
+                      }}
+                    >
+                      Descargar archivo
+                    </button>
+                  )}
+                </>
               ) : (
-                msg.text && <span style={{ whiteSpace: 'pre-line' }}>{msg.text}</span>
-              )}
-              {/* Visualización elegante de archivos adjuntos */}
-              {(msg.fileUrl || msg.savedFileId) && (
-                <div className="flex flex-col gap-2 mt-3 p-3 bg-gray-900 rounded-xl border border-gray-700 w-full max-w-xs">
-                  {/* Icono según tipo de archivo */}
-                  {(() => {
-                    let file: SavedFile | undefined = undefined;
-                    if (msg.savedFileId) file = savedFiles.find(f => f.id === msg.savedFileId);
-                    const fileType = file?.fileType || msg.fileType || '';
-                    const fileName = file?.originalFileName || msg.fileUrl?.split('/').pop() || 'Archivo';
-                    let icon = null;
-                    if (fileType.startsWith('image/')) icon = <svg className="w-6 h-6 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 10a2 2 0 110-4 2 2 0 010 4zm0 0l4 4m0 0l4-4" /></svg>;
-                    else if (fileType.startsWith('video/')) icon = <svg className="w-6 h-6 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 10l4.553-2.276A2 2 0 0122 9.618v4.764a2 2 0 01-2.447 1.894L15 14M4 6h8a2 2 0 012 2v8a2 2 0 01-2 2H4a2 2 0 01-2-2V8a2 2 0 012-2z" /></svg>;
-                    else if (fileType === 'application/pdf') icon = <svg className="w-6 h-6 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" /></svg>;
-                    else icon = <svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>;
-                    return (
-                      <div className="flex items-center gap-3">
-                        {icon}
-                        <span className="font-semibold text-white truncate max-w-[180px]" title={fileName}>{fileName}</span>
-                        <span className="text-xs text-gray-400 ml-2">{fileType.split('/')[1] || fileType}</span>
-                      </div>
-                    );
-                  })()}
-                  {/* Acciones rápidas */}
-                  <div className="flex gap-2 mt-2 flex-wrap justify-start">
-                    {/* Ver */}
-                    {msg.savedFileId && (
-                      <button
-                        onClick={() => {
-                          const file = savedFiles.find(f => f.id === msg.savedFileId);
-                          if (file) {
-                            setActionLoading(msg.savedFileId || "");
-                            handleViewFile(file);
-                            setTimeout(() => setActionLoading(null), 1000);
-                          }
-                        }}
-                        className="px-3 py-1 rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-colors flex items-center gap-1"
-                        disabled={actionLoading === msg.savedFileId}
-                        title="Ver archivo"
-                      >
-                        {actionLoading === msg.savedFileId ? (
-                          <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"></path></svg>
-                        ) : (
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
-                        )}
-                        Ver
-                      </button>
-                    )}
-                    {/* Descargar */}
-                    {msg.savedFileId && (
-                      <button
-                        onClick={async () => {
-                          const file = savedFiles.find(f => f.id === msg.savedFileId);
-                          if (file) {
-                            setActionLoading(msg.savedFileId || "");
-                            try {
-                              const response = await fetch(file.ipfsUrl.replace('ipfs://', 'https://gateway.pinata.cloud/ipfs/'));
-                              if (!response.ok) throw new Error('No se pudo descargar el archivo');
-                              const blob = await response.blob();
-                              const url = window.URL.createObjectURL(blob);
-                              const a = document.createElement('a');
-                              a.href = url;
-                              a.download = file.originalFileName;
-                              document.body.appendChild(a);
-                              a.click();
-                              a.remove();
-                              window.URL.revokeObjectURL(url);
-                            } catch {
-                              alert('Error al descargar el archivo');
-                            } finally {
-                              setActionLoading(null);
-                            }
-                          }
-                        }}
-                        className="px-3 py-1 rounded-lg bg-green-600 text-white hover:bg-green-700 transition-colors flex items-center gap-1"
-                        disabled={actionLoading === msg.savedFileId}
-                        title="Descargar archivo"
-                      >
-                        {actionLoading === msg.savedFileId ? (
-                          <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"></path></svg>
-                        ) : (
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
-                        )}
-                        Descargar
-                      </button>
-                    )}
-                    {/* Eliminar */}
-              {msg.savedFileId && (
-                <button 
-                  onClick={() => {
-                    const file = savedFiles.find(f => f.id === msg.savedFileId);
-                          if (file) handleDeleteFile(file);
-                        }}
-                        className="px-3 py-1 rounded-lg bg-red-600 text-white hover:bg-red-700 transition-colors flex items-center gap-1"
-                        disabled={actionLoading === msg.savedFileId}
-                        title="Eliminar archivo"
-                      >
-                        {actionLoading === msg.savedFileId ? (
-                          <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"></path></svg>
-                        ) : (
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
-                        )}
-                        Eliminar
-                </button>
-                    )}
-                  </div>
-                </div>
+                <span style={{ color: 'red' }}>[Respuesta no textual]</span>
               )}
             </div>
           </div>
@@ -692,6 +638,7 @@ export default function ChatPage() {
         <div ref={chatEndRef} />
       </div>
 
+      {/* Input de archivos oculto */}
       <input
         type="file"
         id="hiddenFileInput"
@@ -702,48 +649,126 @@ export default function ChatPage() {
         accept="*/*"
       />
 
+      {/* Vista previa de archivos seleccionados */}
       {selectedFiles.length > 0 && (
-        <div className="p-4 border-t border-gray-800 bg-gray-900 flex flex-col items-center">
-          <p className="text-white mb-4 text-lg font-medium">Vista previa de archivos:</p>
-          <div className="flex flex-wrap gap-4 justify-center mb-6">
+        <div style={{
+          padding: "16px",
+          borderTop: "1px solid #27272a",
+          background: "#18181b",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center"
+        }}>
+          <p style={{ color: "white", marginBottom: "16px", fontSize: "1.125rem", fontWeight: 500 }}>Vista previa de archivos:</p>
+          <div style={{
+            display: "flex",
+            flexWrap: "wrap",
+            gap: "16px",
+            justifyContent: "center",
+            marginBottom: "24px"
+          }}>
             {selectedFiles.map((file, index) => (
-              <div key={file.name + index} className="relative flex flex-col items-center p-3 border border-gray-700 rounded-xl bg-gray-800 shadow-lg hover:shadow-xl transition-shadow">
+              <div key={file.name + index} style={{
+                position: "relative",
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                padding: "12px",
+                border: "1px solid #374151",
+                borderRadius: "18px",
+                background: "#1f2937",
+                boxShadow: "0 2px 12px rgba(0,0,0,0.15)"
+              }}>
                 {file.type.startsWith('image') && (
-                  <img src={filePreviews[index]} alt={file.name} className="max-w-xs max-h-40 object-contain rounded-lg" />
+                  <img src={filePreviews[index]} alt={file.name} style={{
+                    maxWidth: "256px",
+                    maxHeight: "160px",
+                    objectFit: "contain",
+                    borderRadius: "12px"
+                  }} />
                 )}
                 {file.type.startsWith('video') && (
-                  <video controls src={filePreviews[index]} className="max-w-xs max-h-40 object-contain rounded-lg" />
+                  <video controls src={filePreviews[index]} style={{
+                    maxWidth: "256px",
+                    maxHeight: "160px",
+                    objectFit: "contain",
+                    borderRadius: "12px"
+                  }} />
                 )}
                 {!file.type.startsWith('image') && !file.type.startsWith('video') && (
-                  <div className="flex items-center justify-center w-32 h-32 bg-gray-700 rounded-lg">
-                    <svg className="w-12 h-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <div style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    width: "128px",
+                    height: "128px",
+                    background: "#374151",
+                    borderRadius: "12px"
+                  }}>
+                    <svg width="48" height="48" fill="none" stroke="#9ca3af" strokeWidth="2" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                     </svg>
                   </div>
                 )}
-                <p className="text-gray-300 text-sm mt-2 truncate max-w-[200px]">{file.name}</p>
-                <p className="text-gray-400 text-xs">{(file.size / 1024 / 1024).toFixed(2)} MB</p>
+                <p style={{
+                  color: "#d1d5db",
+                  fontSize: "0.875rem",
+                  marginTop: "8px",
+                  maxWidth: "200px",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap"
+                }}>{file.name}</p>
+                <p style={{ color: "#9ca3af", fontSize: "0.75rem" }}>{(file.size / 1024 / 1024).toFixed(2)} MB</p>
                 <button
                   type="button"
                   onClick={() => {
                     setSelectedFiles(prev => prev.filter((_, i) => i !== index));
                     setFilePreviews(prev => prev.filter((_, i) => i !== index));
                   }}
-                  className="absolute top-2 right-2 p-1 text-red-400 hover:text-red-600 bg-gray-800 rounded-full hover:bg-gray-700 transition-colors"
+                  style={{
+                    position: "absolute",
+                    top: "8px",
+                    right: "8px",
+                    padding: "4px",
+                    color: "#f87171",
+                    background: "#18181b",
+                    borderRadius: "50%",
+                    border: "none",
+                    cursor: "pointer"
+                  }}
+                  title="Eliminar archivo"
                 >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
                   </svg>
                 </button>
               </div>
             ))}
           </div>
-          <form onSubmit={handleSend} className="w-full flex flex-col items-center">
+          <form onSubmit={handleSend} style={{
+            width: "100%",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center"
+          }}>
             <label
               htmlFor="hiddenFileInput"
-              className="px-6 py-3 bg-blue-600 text-white rounded-xl font-medium hover:bg-blue-700 transition-colors mb-4 cursor-pointer flex items-center gap-2 shadow-lg hover:shadow-xl"
+              style={{
+                padding: "12px 24px",
+                background: "#2563eb",
+                color: "white",
+                borderRadius: "12px",
+                fontWeight: 500,
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: "8px",
+                boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
+                marginBottom: "16px"
+              }}
             >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg width="20" height="20" fill="none" stroke="white" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" />
               </svg>
               Adjuntar otro archivo
@@ -753,36 +778,70 @@ export default function ChatPage() {
               value={comment}
               onChange={(e) => setComment(e.target.value)}
               placeholder="Añadir un comentario (opcional)"
-              className="w-full px-4 py-3 rounded-xl border border-gray-700 bg-gray-800 text-white focus:outline-none focus:ring-2 focus:ring-blue-400 mb-4 shadow-lg"
+              style={{
+                width: "100%",
+                padding: "12px 16px",
+                borderRadius: "12px",
+                border: "1px solid #374151",
+                background: "#1f2937",
+                color: "white",
+                marginBottom: "16px",
+                boxShadow: "0 2px 8px rgba(0,0,0,0.10)",
+                outline: "none"
+              }}
             />
-            <div className="flex gap-4 justify-center">
+            <div style={{ display: "flex", gap: "16px", justifyContent: "center" }}>
               <button
                 type="button"
                 onClick={() => { setSelectedFiles([]); setFilePreviews([]); setComment(""); }}
-                className="px-6 py-3 bg-red-600 text-white rounded-xl font-medium hover:bg-red-700 transition-colors flex items-center gap-2 shadow-lg hover:shadow-xl"
+                style={{
+                  padding: "12px 24px",
+                  background: "#dc2626",
+                  color: "white",
+                  borderRadius: "12px",
+                  fontWeight: 500,
+                  border: "none",
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  boxShadow: "0 2px 8px rgba(0,0,0,0.15)"
+                }}
                 disabled={uploadingFile}
               >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg width="20" height="20" fill="none" stroke="white" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
                 </svg>
                 Cancelar
               </button>
               <button
                 type="submit"
-                className="px-6 py-3 bg-green-600 text-white rounded-xl font-medium hover:bg-green-700 transition-colors flex items-center gap-2 shadow-lg hover:shadow-xl"
+                style={{
+                  padding: "12px 24px",
+                  background: "#16a34a",
+                  color: "white",
+                  borderRadius: "12px",
+                  fontWeight: 500,
+                  border: "none",
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  boxShadow: "0 2px 8px rgba(0,0,0,0.15)"
+                }}
                 disabled={uploadingFile}
               >
                 {uploadingFile ? (
                   <>
-                    <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    <svg width="20" height="20" fill="none" stroke="white" viewBox="0 0 24 24">
+                      <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" opacity="0.25"></circle>
+                      <path fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" opacity="0.75"></path>
                     </svg>
                     Subiendo...
                   </>
                 ) : (
                   <>
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg width="20" height="20" fill="none" stroke="white" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
                     </svg>
                     Enviar Archivos
@@ -794,18 +853,35 @@ export default function ChatPage() {
         </div>
       )}
 
+      {/* Formulario de mensaje */}
       {!selectedFiles.length && (
         <form
           onSubmit={handleSend}
-          className="flex gap-2 p-4 border-t border-gray-800 bg-gray-900 relative"
+          style={{
+            display: "flex",
+            gap: "8px",
+            padding: "16px",
+            borderTop: "1px solid #27272a",
+            background: "#18181b",
+            position: "relative"
+          }}
         >
-          <div className="relative w-full flex items-center gap-2">
+          <div style={{ position: "relative", width: "100%", display: "flex", alignItems: "center", gap: "8px" }}>
             <label
               htmlFor="hiddenFileInput"
-              className="flex items-center justify-center w-12 h-12 rounded-full hover:bg-gray-800 cursor-pointer transition-colors"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                width: "48px",
+                height: "48px",
+                borderRadius: "50%",
+                cursor: "pointer",
+                background: "#23272f"
+              }}
               tabIndex={-1}
             >
-              <svg className="w-6 h-6 text-gray-400 hover:text-white" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              <svg width="24" height="24" fill="none" stroke="#9ca3af" strokeWidth="2" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l7.07-7.07a4 4 0 00-5.656-5.657l-7.071 7.07a6 6 0 108.485 8.486L19 13" />
               </svg>
             </label>
@@ -814,13 +890,33 @@ export default function ChatPage() {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               placeholder="Escribe un mensaje..."
-              className="flex-1 px-4 py-3 rounded-xl border border-gray-700 bg-gray-800 text-white focus:outline-none focus:ring-2 focus:ring-green-400 shadow-lg"
+              style={{
+                flex: 1,
+                padding: "12px 16px",
+                borderRadius: "12px",
+                border: "1px solid #374151",
+                background: "#18181b",
+                color: "white",
+                outline: "none"
+              }}
             />
             <button
               type="submit"
-              className="px-6 py-3 bg-green-600 text-white rounded-xl font-medium hover:bg-green-700 transition-colors flex items-center gap-2 shadow-lg hover:shadow-xl"
+              style={{
+                padding: "12px 24px",
+                background: "#16a34a",
+                color: "white",
+                borderRadius: "12px",
+                fontWeight: 500,
+                border: "none",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: "8px",
+                boxShadow: "0 2px 8px rgba(0,0,0,0.15)"
+              }}
             >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg width="20" height="20" fill="none" stroke="white" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
               </svg>
               Enviar
@@ -831,9 +927,99 @@ export default function ChatPage() {
 
       {/* Snackbar de confirmación visual */}
       {snackbar && <Snackbar message={snackbar} onClose={() => setSnackbar(null)} />}
+
+      {/* Vista de archivo */}
+      {isViewingFile && viewingFileUrl && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            width: "100vw",
+            height: "100vh",
+            background: "rgba(0,0,0,0.8)",
+            zIndex: 1000,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center"
+          }}
+          onClick={handleCloseFileView}
+        >
+          <div
+            style={{
+              background: "#18181b",
+              borderRadius: "18px",
+              padding: "32px",
+              maxWidth: "90vw",
+              maxHeight: "90vh",
+              overflow: "auto",
+              position: "relative"
+            }}
+            onClick={e => e.stopPropagation()}
+          >
+            <button
+              onClick={handleCloseFileView}
+              style={{
+                position: "absolute",
+                top: "16px",
+                right: "16px",
+                background: "#dc2626",
+                color: "white",
+                border: "none",
+                borderRadius: "50%",
+                width: "32px",
+                height: "32px",
+                fontWeight: "bold",
+                cursor: "pointer"
+              }}
+              title="Cerrar"
+            >
+              ×
+            </button>
+            <h2 style={{ color: "white", marginBottom: "16px" }}>{viewingFileName}</h2>
+            {viewingFileType?.startsWith("image") ? (
+              <img
+                src={viewingFileUrl}
+                alt={viewingFileName || ""}
+                style={{ maxWidth: "80vw", maxHeight: "70vh", borderRadius: "12px" }}
+              />
+            ) : viewingFileType?.startsWith("video") ? (
+              <video
+                src={viewingFileUrl}
+                controls
+                style={{ maxWidth: "80vw", maxHeight: "70vh", borderRadius: "12px" }}
+              />
+            ) : viewingFileType?.includes("pdf") ? (
+              <iframe
+                src={viewingFileUrl}
+                title={viewingFileName || ""}
+                style={{ width: "80vw", height: "70vh", border: "none", borderRadius: "12px", background: "white" }}
+              />
+            ) : (
+              <a
+                href={viewingFileUrl}
+                download={viewingFileName || undefined}
+                style={{
+                  color: "#22d3ee",
+                  fontWeight: 500,
+                  fontSize: "1.1rem",
+                  textDecoration: "underline"
+                }}
+              >
+                Descargar archivo
+              </a>
+            )}
+            {fileAvailability?.warning && (
+              <div style={{ color: "#facc15", marginTop: "16px" }}>
+                {fileAvailability.warning}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </main>
   );
-} 
+}
 
 // Conexión real a Gemini (proxy backend)
 async function geminiApi(input: string, wallet?: string) {
@@ -844,4 +1030,4 @@ async function geminiApi(input: string, wallet?: string) {
   });
   const data = await response.json();
   return data?.text || "No se pudo obtener respuesta de Gemini.";
-} 
+}

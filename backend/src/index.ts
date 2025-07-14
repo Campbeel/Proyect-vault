@@ -79,8 +79,19 @@ app.post('/upload', upload.single('file'), async (req: Request, res: Response) =
     filename: req.file.originalname,
     contentType: req.file.mimetype
   });
-  // Agregar metadata personalizada con el nombre original
-  formData.append('pinataMetadata', JSON.stringify({ name: originalFileName }));
+  
+  // Agregar metadata personalizada con información completa del archivo
+  const metadata = {
+    name: originalFileName,
+    keyvalues: {
+      type: fileType,
+      size: req.file.size.toString(),
+      uploadedBy: wallet.toLowerCase(),
+      uploadedAt: new Date().toISOString()
+    }
+  };
+  formData.append('pinataMetadata', JSON.stringify(metadata));
+  
   try {
     const pinataResponse = await axios.post(
       'https://api.pinata.cloud/pinning/pinFileToIPFS',
@@ -96,16 +107,32 @@ app.post('/upload', upload.single('file'), async (req: Request, res: Response) =
     console.log('Respuesta de Pinata al subir archivo:', pinataResponse.data);
     const ipfsHash = pinataResponse.data.IpfsHash;
     const ipfsUrl = `ipfs://${ipfsHash}`;
+    
+    // Guardar en base de datos con información completa
     const file = await prisma.file.create({
       data: {
-      ipfsUrl,
+        ipfsUrl,
         originalName: originalFileName,
         fileType,
         fileSize: req.file.size,
-        userId: user.id
+        userId: user.id,
+        // Agregar campos adicionales para mejor tracking
+        pinataHash: ipfsHash,
+        uploadedAt: new Date()
       }
     });
-    res.status(200).json({ ipfsUrl, file });
+    
+    res.status(200).json({ 
+      ipfsUrl, 
+      file,
+      metadata: {
+        hash: ipfsHash,
+        gatewayUrl: `https://gateway.pinata.cloud/ipfs/${ipfsHash}`,
+        fileName: originalFileName,
+        fileType: fileType,
+        fileSize: req.file.size
+      }
+    });
   } catch (error) {
     console.error('Error al subir archivo a Pinata desde el backend:', error);
     res.status(500).json({ error: 'Error al subir el archivo a IPFS.' });
@@ -121,6 +148,92 @@ app.get('/files', async (req, res) => {
     res.status(200).json({ message: responseToUser });
   } else {
     res.status(200).json({ message: "No tienes archivos guardados por ahora." });
+  }
+});
+
+// Nuevo endpoint para obtener archivo por hash
+app.get('/api/files/hash/:hash', async (req: Request, res: Response) => {
+  try {
+    const { hash } = req.params;
+    const { wallet } = req.query;
+    
+    if (!hash) {
+      return res.status(400).json({ error: 'Hash requerido.' });
+    }
+    
+    if (!wallet) {
+      return res.status(400).json({ error: 'Wallet requerida para verificar propiedad.' });
+    }
+    
+    // Verificar que el archivo pertenece al usuario
+    const user = await prisma.user.findUnique({
+      where: { wallet: wallet.toString().toLowerCase() },
+      include: { files: true }
+    });
+    
+    if (!user) {
+      return res.status(404).json({ error: 'Usuario no encontrado.' });
+    }
+    
+    // Buscar el archivo en la base de datos del usuario
+    const file = user.files.find(f => f.pinataHash === hash || f.ipfsUrl.includes(hash));
+    
+    if (!file) {
+      return res.status(404).json({ error: 'Archivo no encontrado o no tienes permisos.' });
+    }
+    
+    // Obtener metadata actualizada desde Pinata
+    const pinataJWT = process.env.PINATA_JWT;
+    try {
+      const metaRes = await axios.get(`https://api.pinata.cloud/data/pinList?hashContains=${hash}`,
+        { headers: { 'Authorization': `Bearer ${pinataJWT}` } });
+      
+      const pinataItem = metaRes.data.rows && metaRes.data.rows[0];
+      
+      if (!pinataItem) {
+        return res.status(404).json({ error: 'Archivo no encontrado en Pinata.' });
+      }
+      
+      // Verificar que el archivo está disponible
+      const gatewayUrl = `https://gateway.pinata.cloud/ipfs/${hash}`;
+      const availabilityCheck = await axios.head(gatewayUrl, { timeout: 5000 });
+      
+      res.json({
+        success: true,
+        file: {
+          id: file.id,
+          ipfsUrl: `ipfs://${hash}`,
+          originalFileName: pinataItem.metadata?.name || file.originalName,
+          fileType: pinataItem.metadata?.keyvalues?.type || file.fileType,
+          fileSize: file.fileSize,
+          gatewayUrl: gatewayUrl,
+          uploadedAt: file.uploadedAt,
+          isAvailable: availabilityCheck.status === 200
+        }
+      });
+      
+    } catch (pinataError) {
+      console.error('Error al verificar archivo en Pinata:', pinataError);
+      // Si no se puede verificar en Pinata, devolver datos locales
+      res.json({
+        success: true,
+        file: {
+          id: file.id,
+          ipfsUrl: file.ipfsUrl,
+          originalFileName: file.originalName,
+          fileType: file.fileType,
+          fileSize: file.fileSize,
+          gatewayUrl: `https://gateway.pinata.cloud/ipfs/${hash}`,
+          uploadedAt: file.uploadedAt,
+          isAvailable: false,
+          warning: 'No se pudo verificar disponibilidad en Pinata'
+        }
+      });
+    }
+    
+  } catch (error) {
+    console.error('Error al obtener archivo por hash:', error);
+    res.status(500).json({ error: 'Error interno del servidor.' });
   }
 });
 
@@ -212,18 +325,131 @@ app.post('/chat/agent', express.json(), async (req: Request, res: Response): Pro
       }
       case 'eliminar_archivo':
       case 'deletefile': {
-        const { fileId } = params || {};
-        if (!fileId) {
-          result = 'No se proporcionó el ID del archivo.';
+        const { fileId, fileName } = params || {};
+        if (!fileId && !fileName) {
+          result = { success: false, error: 'No se proporcionó el ID o nombre del archivo.' };
           break;
         }
-        const file = await prisma.file.findUnique({ where: { id: fileId } });
-        if (!file) {
-          result = 'Archivo no encontrado.';
-          break;
+        
+        try {
+          let fileToDelete = null;
+          
+          // Si se proporciona fileId (hash), buscar directamente
+          if (fileId) {
+            const hash = fileId.replace('ipfs://', '');
+            const user = await prisma.user.findUnique({
+              where: { wallet: wallet.toLowerCase() },
+              include: { files: true }
+            });
+            
+            if (!user) {
+              result = { success: false, error: 'Usuario no encontrado.' };
+              break;
+            }
+            
+            fileToDelete = user.files.find(f => f.pinataHash === hash || f.ipfsUrl.includes(hash));
+            
+            if (!fileToDelete) {
+              result = { success: false, error: 'Archivo no encontrado o no tienes permisos.' };
+              break;
+            }
+          }
+          
+          // Si se proporciona fileName, buscar por nombre
+          if (fileName && !fileToDelete) {
+            const user = await prisma.user.findUnique({
+              where: { wallet: wallet.toLowerCase() },
+              include: { files: true }
+            });
+            
+            if (!user || user.files.length === 0) {
+              result = { success: false, error: 'No tienes archivos guardados.' };
+              break;
+            }
+            
+            const fileNameLower = fileName.toLowerCase();
+            const hasExtension = fileName.includes('.') && fileName.split('.').pop().length <= 5;
+            
+            // Buscar archivo por nombre exacto o parcial
+            let matches = [];
+            
+            for (const file of user.files) {
+              const fileLower = file.originalName.toLowerCase();
+              
+              if (hasExtension) {
+                if (fileLower === fileNameLower) {
+                  fileToDelete = file;
+                  break;
+                }
+              } else {
+                if (fileLower.startsWith(fileNameLower)) {
+                  matches.push(file);
+                }
+              }
+            }
+            
+            // Si no se encontró exacto pero hay una coincidencia parcial única
+            if (!fileToDelete && matches.length === 1) {
+              fileToDelete = matches[0];
+            }
+            
+            // Si hay múltiples coincidencias, pedir especificación
+            if (!fileToDelete && matches.length > 1) {
+              const fileNames = matches.map(f => f.originalName).join(', ');
+              result = { 
+                success: false, 
+                error: `Se encontraron varios archivos que comienzan con '${fileName}'. Por favor, especifica el nombre completo: ${fileNames}` 
+              };
+              break;
+            }
+            
+            if (!fileToDelete) {
+              result = { success: false, error: 'Archivo no encontrado en tu bóveda.' };
+              break;
+            }
+          }
+          
+          if (!fileToDelete) {
+            result = { success: false, error: 'No se pudo identificar el archivo a eliminar.' };
+            break;
+          }
+          
+          // Intentar eliminar de Pinata (opcional, ya que IPFS es inmutable)
+          const hash = fileToDelete.pinataHash || fileToDelete.ipfsUrl.replace('ipfs://', '');
+          const pinataJWT = process.env.PINATA_JWT;
+          
+          let pinataUnpinned = false;
+          let pinataUnpinWarning = '';
+          try {
+            // Intentar unpin de Pinata (esto no elimina el archivo de IPFS, solo de Pinata)
+            await axios.delete(`https://api.pinata.cloud/pinning/unpin/${hash}`,
+              { headers: { 'Authorization': `Bearer ${pinataJWT}` } });
+            console.log(`Archivo ${fileToDelete.originalName} unpinned de Pinata`);
+            pinataUnpinned = true;
+          } catch (pinataError) {
+            pinataUnpinWarning = `No se pudo eliminar de Pinata (puede que ya no esté pinned): ${pinataError.message}`;
+            console.log(pinataUnpinWarning);
+          }
+          
+          // Eliminar de la base de datos local
+          await prisma.file.delete({ where: { id: fileToDelete.id } });
+          
+          result = { 
+            success: true, 
+            message: `Archivo '${fileToDelete.originalName}' eliminado exitosamente.` + (pinataUnpinned ? '' : ' (Advertencia: no se pudo eliminar de Pinata)'),
+            deletedFile: {
+              id: fileToDelete.id,
+              originalName: fileToDelete.originalName,
+              ipfsUrl: fileToDelete.ipfsUrl
+            },
+            pinataUnpinned,
+            pinataUnpinWarning: pinataUnpinWarning || undefined
+          };
+          
+        } catch (error) {
+          console.error('Error al eliminar archivo:', error);
+          result = { success: false, error: 'Error al eliminar el archivo.' };
         }
-        await prisma.file.delete({ where: { id: fileId } });
-        result = `Archivo '${file.originalName}' eliminado exitosamente.`;
         break;
       }
       case 'ver_archivo':
@@ -233,102 +459,262 @@ app.post('/chat/agent', express.json(), async (req: Request, res: Response): Pro
           result = { success: false, error: 'No se proporcionó el ID o nombre del archivo.' };
           break;
         }
-        // Si se proporciona fileId, buscar directamente en la blockchain (por hash)
+        
+        // Si se proporciona fileId (hash), usar el nuevo endpoint
         if (fileId) {
-          // Buscar metadata en Pinata por hash
-          const hash = fileId.replace('ipfs://', '');
           try {
-            const pinataJWT = process.env.PINATA_JWT;
-            const metaRes = await axios.get(`https://api.pinata.cloud/data/pinList?hashContains=${hash}`,
-              { headers: { 'Authorization': `Bearer ${pinataJWT}` } });
-            const item = metaRes.data.rows && metaRes.data.rows[0];
-            if (!item) {
-              result = { success: false, error: 'Archivo no encontrado en Pinata.' };
+            const hash = fileId.replace('ipfs://', '');
+            const fileResponse = await axios.get(`http://localhost:5000/api/files/hash/${hash}?wallet=${wallet}`);
+            
+            if (fileResponse.data && fileResponse.data.success) {
+              result = {
+                success: true,
+                file: fileResponse.data.file
+              };
+            } else {
+              result = { success: false, error: 'Archivo no encontrado o no tienes permisos.' };
+            }
+          } catch (error) {
+            console.error('Error al obtener archivo por hash:', error);
+            result = { success: false, error: 'Error al obtener el archivo.' };
+          }
+          break;
+        }
+        
+        // Si se proporciona fileName, buscar en la base de datos local primero
+        if (fileName) {
+          try {
+            const user = await prisma.user.findUnique({
+              where: { wallet: wallet.toLowerCase() },
+              include: { files: true }
+            });
+            
+            if (!user || user.files.length === 0) {
+              result = { success: false, error: 'No tienes archivos guardados.' };
               break;
             }
-            result = {
-              success: true,
-              file: {
-                id: fileId,
-                ipfsUrl: fileId,
-                originalFileName: item.metadata.name,
-                fileType: item.metadata.keyvalues && item.metadata.keyvalues.type || 'desconocido'
-              }
-            };
-            break;
-          } catch {
-            result = { success: false, error: 'Archivo no encontrado en Pinata.' };
-            break;
-          }
-        }
-        // Si se proporciona fileName, buscar en la blockchain y Pinata
-        if (fileName) {
-          const hashes = await getFiles(wallet);
-          let foundFile = null;
-          let matches = [];
-          const fileNameLower = fileName.toLowerCase();
-          const hasExtension = fileName.includes('.') && fileName.split('.').pop().length <= 5;
-          const pinataJWT = process.env.PINATA_JWT;
-          for (const hash of hashes) {
-            try {
-              const metaRes = await axios.get(`https://api.pinata.cloud/data/pinList?hashContains=${hash.replace('ipfs://', '')}`,
-                { headers: { 'Authorization': `Bearer ${pinataJWT}` } });
-              const item = metaRes.data.rows && metaRes.data.rows[0];
-              if (!item) continue;
-              const pinataName = item.metadata.name || '';
-              const contentType = item.metadata.keyvalues && item.metadata.keyvalues.type || 'desconocido';
+            
+            const fileNameLower = fileName.toLowerCase();
+            const hasExtension = fileName.includes('.') && fileName.split('.').pop().length <= 5;
+            
+            // Buscar archivo por nombre exacto o parcial
+            let foundFile = null;
+            let matches = [];
+            
+            for (const file of user.files) {
+              const fileLower = file.originalName.toLowerCase();
+              
               if (hasExtension) {
-                if (pinataName.toLowerCase() === fileNameLower) {
-                  foundFile = {
-                    id: hash,
-                    ipfsUrl: hash,
-                    originalFileName: pinataName,
-                    fileType: contentType
-                  };
+                if (fileLower === fileNameLower) {
+                  foundFile = file;
                   break;
                 }
               } else {
-                if (pinataName.toLowerCase().startsWith(fileNameLower)) {
-                  matches.push({
-                    id: hash,
-                    ipfsUrl: hash,
-                    originalFileName: pinataName,
-                    fileType: contentType
-                  });
+                if (fileLower.startsWith(fileNameLower)) {
+                  matches.push(file);
                 }
               }
-            } catch {}
+            }
+            
+            // Si no se encontró exacto pero hay una coincidencia parcial única
+            if (!foundFile && matches.length === 1) {
+              foundFile = matches[0];
+            }
+            
+            // Si hay múltiples coincidencias, pedir especificación
+            if (!foundFile && matches.length > 1) {
+              const fileNames = matches.map(f => f.originalName).join(', ');
+              result = { 
+                success: false, 
+                error: `Se encontraron varios archivos que comienzan con '${fileName}'. Por favor, especifica el nombre completo: ${fileNames}` 
+              };
+              break;
+            }
+            
+            if (!foundFile) {
+              result = { success: false, error: 'Archivo no encontrado en tu bóveda.' };
+              break;
+            }
+            
+            // Usar el hash del archivo encontrado para obtener metadata actualizada
+            const hash = foundFile.pinataHash || foundFile.ipfsUrl.replace('ipfs://', '');
+            const fileResponse = await axios.get(`http://localhost:5000/api/files/hash/${hash}?wallet=${wallet}`);
+            
+            if (fileResponse.data && fileResponse.data.success) {
+              result = {
+                success: true,
+                file: fileResponse.data.file
+              };
+            } else {
+              // Si falla la verificación en Pinata, usar datos locales
+              result = {
+                success: true,
+                file: {
+                  id: foundFile.id,
+                  ipfsUrl: foundFile.ipfsUrl,
+                  originalFileName: foundFile.originalName,
+                  fileType: foundFile.fileType,
+                  fileSize: foundFile.fileSize,
+                  gatewayUrl: `https://gateway.pinata.cloud/ipfs/${hash}`,
+                  uploadedAt: foundFile.uploadedAt,
+                  isAvailable: false,
+                  warning: 'No se pudo verificar disponibilidad en Pinata'
+                }
+              };
+            }
+            
+          } catch (error) {
+            console.error('Error al buscar archivo por nombre:', error);
+            result = { success: false, error: 'Error al buscar el archivo.' };
           }
-          if (!foundFile && matches.length === 1) {
-            foundFile = matches[0];
-          }
-          if (!foundFile && matches.length > 1) {
-            result = { success: false, error: `Se encontraron varios archivos que comienzan con '${fileName}'. Por favor, especifica el nombre completo con extensión: ${matches.map(f => f.originalFileName).join(', ')}` };
-            break;
-          }
-          if (!foundFile) {
-            result = { success: false, error: 'Archivo no encontrado en tu bóveda.' };
-            break;
-          }
-          result = { success: true, file: foundFile };
           break;
         }
+        
         result = { success: false, error: 'Parámetros inválidos para ver archivo.' };
         break;
       }
       case 'descargar_archivo':
       case 'downloadfile': {
-        const { fileId } = params || {};
-        if (!fileId) {
-          result = 'No se proporcionó el ID del archivo.';
+        const { fileId, fileName } = params || {};
+        if (!fileId && !fileName) {
+          result = { success: false, error: 'No se proporcionó el ID o nombre del archivo.' };
           break;
         }
-        const file = await prisma.file.findUnique({ where: { id: fileId } });
-        if (!file) {
-          result = 'Archivo no encontrado.';
-          break;
+        
+        try {
+          let fileToDownload = null;
+          
+          // Si se proporciona fileId (hash), buscar directamente
+          if (fileId) {
+            const hash = fileId.replace('ipfs://', '');
+            const user = await prisma.user.findUnique({
+              where: { wallet: wallet.toLowerCase() },
+              include: { files: true }
+            });
+            
+            if (!user) {
+              result = { success: false, error: 'Usuario no encontrado.' };
+              break;
+            }
+            
+            fileToDownload = user.files.find(f => f.pinataHash === hash || f.ipfsUrl.includes(hash));
+            
+            if (!fileToDownload) {
+              result = { success: false, error: 'Archivo no encontrado o no tienes permisos.' };
+              break;
+            }
+          }
+          
+          // Si se proporciona fileName, buscar por nombre
+          if (fileName && !fileToDownload) {
+            const user = await prisma.user.findUnique({
+              where: { wallet: wallet.toLowerCase() },
+              include: { files: true }
+            });
+            
+            if (!user || user.files.length === 0) {
+              result = { success: false, error: 'No tienes archivos guardados.' };
+              break;
+            }
+            
+            const fileNameLower = fileName.toLowerCase();
+            const hasExtension = fileName.includes('.') && fileName.split('.').pop().length <= 5;
+            
+            // Buscar archivo por nombre exacto o parcial
+            let matches = [];
+            
+            for (const file of user.files) {
+              const fileLower = file.originalName.toLowerCase();
+              
+              if (hasExtension) {
+                if (fileLower === fileNameLower) {
+                  fileToDownload = file;
+                  break;
+                }
+              } else {
+                if (fileLower.startsWith(fileNameLower)) {
+                  matches.push(file);
+                }
+              }
+            }
+            
+            // Si no se encontró exacto pero hay una coincidencia parcial única
+            if (!fileToDownload && matches.length === 1) {
+              fileToDownload = matches[0];
+            }
+            
+            // Si hay múltiples coincidencias, pedir especificación
+            if (!fileToDownload && matches.length > 1) {
+              const fileNames = matches.map(f => f.originalName).join(', ');
+              result = { 
+                success: false, 
+                error: `Se encontraron varios archivos que comienzan con '${fileName}'. Por favor, especifica el nombre completo: ${fileNames}` 
+              };
+              break;
+            }
+            
+            if (!fileToDownload) {
+              result = { success: false, error: 'Archivo no encontrado en tu bóveda.' };
+              break;
+            }
+          }
+          
+          if (!fileToDownload) {
+            result = { success: false, error: 'No se pudo identificar el archivo a descargar.' };
+            break;
+          }
+          
+          // Verificar disponibilidad en Pinata
+          const hash = fileToDownload.pinataHash || fileToDownload.ipfsUrl.replace('ipfs://', '');
+          const gatewayUrl = `https://gateway.pinata.cloud/ipfs/${hash}`;
+          
+          try {
+            // Verificar que el archivo está disponible
+            const availabilityCheck = await axios.head(gatewayUrl, { timeout: 5000 });
+            
+            if (availabilityCheck.status === 200) {
+              result = { 
+                success: true, 
+                message: `Archivo '${fileToDownload.originalName}' disponible para descarga.`,
+                downloadInfo: {
+                  id: fileToDownload.id,
+                  originalName: fileToDownload.originalName,
+                  fileType: fileToDownload.fileType,
+                  fileSize: fileToDownload.fileSize,
+                  gatewayUrl: gatewayUrl,
+                  ipfsUrl: fileToDownload.ipfsUrl,
+                  isAvailable: true
+                }
+              };
+            } else {
+              result = { 
+                success: false, 
+                error: 'El archivo no está disponible para descarga en este momento.' 
+              };
+            }
+          } catch (availabilityError) {
+            console.error('Error al verificar disponibilidad:', availabilityError);
+            // Si no se puede verificar, devolver información básica
+            result = { 
+              success: true, 
+              message: `Archivo '${fileToDownload.originalName}' - puede que no esté disponible.`,
+              downloadInfo: {
+                id: fileToDownload.id,
+                originalName: fileToDownload.originalName,
+                fileType: fileToDownload.fileType,
+                fileSize: fileToDownload.fileSize,
+                gatewayUrl: gatewayUrl,
+                ipfsUrl: fileToDownload.ipfsUrl,
+                isAvailable: false,
+                warning: 'No se pudo verificar disponibilidad'
+              }
+            };
+          }
+          
+        } catch (error) {
+          console.error('Error al procesar descarga:', error);
+          result = { success: false, error: 'Error al procesar la descarga.' };
         }
-        result = `Descarga tu archivo '${file.originalName}' aquí: ${file.ipfsUrl}`;
         break;
       }
       case 'subir_archivo':

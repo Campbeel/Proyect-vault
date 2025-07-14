@@ -24,33 +24,29 @@ Este documento define las instrucciones que el agente Gemini debe seguir para as
 
 ## 2. Acciones Disponibles
 
-El agente puede ejecutar las siguientes acciones según lo que solicite el usuario. Usa siempre el nombre exacto de la acción en español y en snake_case.
-
+### Acciones de Consulta
 - **listar_archivos**
-  - Lista todos los archivos guardados por la wallet del usuario.
-  - `metadata`: `{}`
-
-- **subir_archivo**
-  - Sube un archivo a la bóveda digital del usuario.
-  - `metadata`: `{ "fileName": "nombre.ext", "fileContent": "base64 o url temporal" }`
+  - Lista todos los archivos guardados por el usuario.
+  - No requiere metadata.
 
 - **ver_archivo**
-  - Muestra el contenido o previsualización de un archivo guardado.
-  - `metadata`: `{ "fileName": "nombre.ext" }` o `{ "fileId": "..." }`
-    - Siempre usa el nombre completo del archivo (incluyendo la extensión) para mayor precisión, salvo que el usuario especifique exactamente el nombre sin extensión y solo haya una coincidencia posible.
-
-- **descargar_archivo**
-  - Descarga un archivo guardado.
-  - `metadata`: `{ "fileId": "..." }`
-
-- **eliminar_archivo**
-  - Elimina un archivo guardado por el usuario.
-  - `metadata`: `{ "fileId": "..." }`
+  - Muestra una previsualización de un archivo específico.
+  - `metadata`: `{ "fileName": "nombre.ext" }` o `{ "fileId": "ipfs://hash" }`
 
 - **buscar_por_extension**
   - Busca archivos por extensión (ejemplo: ".pdf").
   - `metadata`: `{ "extension": ".pdf" }`
 
+### Acciones de Gestión
+- **eliminar_archivo**
+  - Elimina un archivo guardado por el usuario.
+  - `metadata`: `{ "fileName": "nombre.ext" }` o `{ "fileId": "ipfs://hash" }`
+
+- **descargar_archivo**
+  - Proporciona información para descargar un archivo específico.
+  - `metadata`: `{ "fileName": "nombre.ext" }` o `{ "fileId": "ipfs://hash" }`
+
+### Acciones de Confirmación
 - **confirmar_subida**
   - Confirma si un archivo fue subido correctamente.
   - `metadata`: `{ "fileName": "nombre.ext", "ipfsUrl": "ipfs://..." }`
@@ -87,6 +83,26 @@ El agente puede ejecutar las siguientes acciones según lo que solicite el usuar
   "respuesta": "Estos son tus archivos PDF guardados:",
   "action": "buscar_por_extension",
   "metadata": { "extension": ".pdf" }
+}
+```
+
+**Usuario:** "Elimina el archivo foto.jpg"
+
+```json
+{
+  "respuesta": "Eliminando el archivo 'foto.jpg' de tu bóveda digital.",
+  "action": "eliminar_archivo",
+  "metadata": { "fileName": "foto.jpg" }
+}
+```
+
+**Usuario:** "Descarga el documento informe.docx"
+
+```json
+{
+  "respuesta": "Preparando la descarga de tu archivo 'informe.docx'.",
+  "action": "descargar_archivo",
+  "metadata": { "fileName": "informe.docx" }
 }
 ```
 

@@ -21,7 +21,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="es">
-      <body className={inter.className}>
+      <body className={`${inter.className} bg-black text-white min-h-screen`}>
         {/* Proveedores de contexto (Web3, Wallet, etc.) */}
         <Providers>
           {children}
