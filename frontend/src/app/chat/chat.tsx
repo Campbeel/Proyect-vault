@@ -236,6 +236,26 @@ export default function ChatPage() {
 
   if (!isMounted) return null;
 
+  // Recupera el historial de chat guardado en el backend para la wallet conectada
+  async function fetchChatHistory(address: string): Promise<Message[]> {
+    try {
+      const res = await axios.get(`${BACKEND_URL}/conversations/${address}`);
+      if (res.data && Array.isArray(res.data.conversaciones) && res.data.conversaciones.length > 0) {
+        // Tomar la última conversación guardada
+        const lastConv = res.data.conversaciones[res.data.conversaciones.length - 1];
+        // lastConv.mensajes es un array de mensajes {rol, mensaje}
+        // Adaptar al formato Message del frontend
+        return lastConv.mensajes.map((msg: any) => ({
+          sender: msg.rol === 'usuario' ? 'user' : 'agente',
+          text: msg.mensaje
+        }));
+      }
+      return [];
+    } catch (e) {
+      return [];
+    }
+  }
+
   const handleSend = async (e?: React.FormEvent) => {
     e?.preventDefault();
     if (!input.trim() && selectedFiles.length === 0) return;
@@ -287,7 +307,20 @@ export default function ChatPage() {
     setMessages((msgs) => [...msgs, { sender: "user", text: input }]);
     setInput("");
     try {
-      const geminiResponse = await geminiApi(input, address);
+      // Recuperar historial de chat antes de enviar a Gemini
+      let chatHistory: Message[] = [];
+      if (address) {
+        chatHistory = await fetchChatHistory(address);
+      }
+      // Construir el contexto para Gemini: historial + mensaje actual
+      const contextMessages = [
+        ...chatHistory,
+        { sender: "user", text: input }
+      ];
+      // Puedes adaptar aquí cómo se arma el prompt para Gemini
+      const promptForGemini = contextMessages.map(m => `${m.sender === 'user' ? 'Usuario' : 'Agente'}: ${m.text}`).join('\n');
+      // Llamar a Gemini usando el prompt construido
+      const geminiResponse = await geminiApi(promptForGemini, address);
 
       function extractJsonFromGeminiResponse(response: string) {
         const match = response.match(/```json\s*([\s\S]+?)```/i);

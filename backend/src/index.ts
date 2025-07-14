@@ -37,7 +37,11 @@ function decryptMessages(ciphertext: string, key: string): MensajeConversacion[]
 dotenv.config();
 const app: express.Application = express();
 const port = process.env.PORT || 5000;
-app.use(cors({ origin: 'http://localhost:3000' }));
+const allowedOrigins = [
+  'http://localhost:3000',
+  'https://proyect-vault.vercel.app'
+];
+app.use(cors({ origin: allowedOrigins }));
 const upload = multer();
 
 // Montar endpoints de blockchain
