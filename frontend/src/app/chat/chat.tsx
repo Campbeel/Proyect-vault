@@ -1,4 +1,5 @@
 "use client";
+import styles from "./chat.module.css";
 
 // =======================
 // IMPORTS Y DEPENDENCIAS
@@ -472,17 +473,7 @@ export default function ChatPage() {
 
   if (!address) {
     return (
-      <main
-        style={{
-          minHeight: "100vh",
-          width: "100%",
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          justifyContent: "center",
-          background: "linear-gradient(to bottom, #111827 0%, #000 100%)"
-        }}
-      >
+      <main className={styles.main}>
         <div
           style={{
             background: "#1f2937",
@@ -526,33 +517,12 @@ export default function ChatPage() {
   }
 
   return (
-    <main
-      style={{
-        minHeight: "100vh",
-        width: "100%",
-        display: "flex",
-        flexDirection: "column",
-        background: "linear-gradient(to bottom, #111827 0%, #000 100%)",
-        position: "relative"
-      }}
-    >
+    <main className={styles.main}>
       {/* Botón de desconexión */}
-      <div style={{ position: "absolute", top: 24, right: 32, zIndex: 50 }}>
+      <div className={styles.disconnectBtnWrapper}>
         <button
           onClick={handleDisconnect}
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "8px",
-            padding: "8px 20px",
-            background: "linear-gradient(to right, #ef4444, #ec4899)",
-            color: "white",
-            borderRadius: "12px",
-            fontWeight: 500,
-            border: "none",
-            cursor: "pointer",
-            boxShadow: "0 2px 8px rgba(0,0,0,0.15)"
-          }}
+          className={styles.disconnectBtn}
         >
           <svg width="20" height="20" fill="none" stroke="white" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a2 2 0 01-2 2H7a2 2 0 01-2-2V7a2 2 0 012-2h4a2 2 0 012 2v1" />
@@ -562,36 +532,14 @@ export default function ChatPage() {
       </div>
 
       {/* Mensajes */}
-      <div style={{
-        flex: 1,
-        overflowY: "auto",
-        padding: "24px",
-        display: "flex",
-        flexDirection: "column",
-        gap: "16px"
-      }}>
+      <div className={styles.messages}>
         {messages.map((msg, idx) => (
           <div
             key={idx}
-            style={{
-              width: "100%",
-              display: "flex",
-              justifyContent: msg.sender === "user" ? "flex-end" : "flex-start"
-            }}
+            className={`${styles.messageRow} ${msg.sender === "user" ? styles.messageUser : styles.messageAgent}`}
           >
             <div
-              style={{
-                padding: "12px 16px",
-                borderRadius: "18px",
-                maxWidth: msg.fileUrl || msg.savedFileId ? "320px" : "80%",
-                background: msg.sender === "user" ? "#16a34a" : "#27272a",
-                color: "white",
-                marginLeft: msg.sender === "user" ? "16px" : "0",
-                marginRight: msg.sender === "user" ? "0" : "16px",
-                marginTop: "4px",
-                marginBottom: "4px",
-                wordBreak: "break-word"
-              }}
+              className={`${styles.messageBubble} ${msg.sender === "user" ? styles.messageBubbleUser : ""}`}
             >
               {typeof msg.text === 'string' ? (
                 <>
@@ -651,92 +599,33 @@ export default function ChatPage() {
 
       {/* Vista previa de archivos seleccionados */}
       {selectedFiles.length > 0 && (
-        <div style={{
-          padding: "16px",
-          borderTop: "1px solid #27272a",
-          background: "#18181b",
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center"
-        }}>
+        <div className={styles.filePreviewContainer}>
           <p style={{ color: "white", marginBottom: "16px", fontSize: "1.125rem", fontWeight: 500 }}>Vista previa de archivos:</p>
-          <div style={{
-            display: "flex",
-            flexWrap: "wrap",
-            gap: "16px",
-            justifyContent: "center",
-            marginBottom: "24px"
-          }}>
+          <div className={styles.filePreviewList}>
             {selectedFiles.map((file, index) => (
-              <div key={file.name + index} style={{
-                position: "relative",
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-                padding: "12px",
-                border: "1px solid #374151",
-                borderRadius: "18px",
-                background: "#1f2937",
-                boxShadow: "0 2px 12px rgba(0,0,0,0.15)"
-              }}>
+              <div key={file.name + index} className={styles.filePreviewItem}>
                 {file.type.startsWith('image') && (
-                  <img src={filePreviews[index]} alt={file.name} style={{
-                    maxWidth: "256px",
-                    maxHeight: "160px",
-                    objectFit: "contain",
-                    borderRadius: "12px"
-                  }} />
+                  <img src={filePreviews[index]} alt={file.name} className={styles.filePreviewImg} />
                 )}
                 {file.type.startsWith('video') && (
-                  <video controls src={filePreviews[index]} style={{
-                    maxWidth: "256px",
-                    maxHeight: "160px",
-                    objectFit: "contain",
-                    borderRadius: "12px"
-                  }} />
+                  <video controls src={filePreviews[index]} className={styles.filePreviewVideo} />
                 )}
                 {!file.type.startsWith('image') && !file.type.startsWith('video') && (
-                  <div style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    width: "128px",
-                    height: "128px",
-                    background: "#374151",
-                    borderRadius: "12px"
-                  }}>
+                  <div className={styles.filePreviewIcon}>
                     <svg width="48" height="48" fill="none" stroke="#9ca3af" strokeWidth="2" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                     </svg>
                   </div>
                 )}
-                <p style={{
-                  color: "#d1d5db",
-                  fontSize: "0.875rem",
-                  marginTop: "8px",
-                  maxWidth: "200px",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  whiteSpace: "nowrap"
-                }}>{file.name}</p>
-                <p style={{ color: "#9ca3af", fontSize: "0.75rem" }}>{(file.size / 1024 / 1024).toFixed(2)} MB</p>
+                <p className={styles.filePreviewName}>{file.name}</p>
+                <p className={styles.filePreviewSize}>{(file.size / 1024 / 1024).toFixed(2)} MB</p>
                 <button
                   type="button"
                   onClick={() => {
                     setSelectedFiles(prev => prev.filter((_, i) => i !== index));
                     setFilePreviews(prev => prev.filter((_, i) => i !== index));
                   }}
-                  style={{
-                    position: "absolute",
-                    top: "8px",
-                    right: "8px",
-                    padding: "4px",
-                    color: "#f87171",
-                    background: "#18181b",
-                    borderRadius: "50%",
-                    border: "none",
-                    cursor: "pointer"
-                  }}
+                  className={styles.filePreviewRemoveBtn}
                   title="Eliminar archivo"
                 >
                   <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -746,28 +635,8 @@ export default function ChatPage() {
               </div>
             ))}
           </div>
-          <form onSubmit={handleSend} style={{
-            width: "100%",
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center"
-          }}>
-            <label
-              htmlFor="hiddenFileInput"
-              style={{
-                padding: "12px 24px",
-                background: "#2563eb",
-                color: "white",
-                borderRadius: "12px",
-                fontWeight: 500,
-                cursor: "pointer",
-                display: "flex",
-                alignItems: "center",
-                gap: "8px",
-                boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
-                marginBottom: "16px"
-              }}
-            >
+          <form onSubmit={handleSend} className={styles.filePreviewForm}>
+            <label htmlFor="hiddenFileInput" className={styles.filePreviewAttachBtn}>
               <svg width="20" height="20" fill="none" stroke="white" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" />
               </svg>
@@ -778,35 +647,13 @@ export default function ChatPage() {
               value={comment}
               onChange={(e) => setComment(e.target.value)}
               placeholder="Añadir un comentario (opcional)"
-              style={{
-                width: "100%",
-                padding: "12px 16px",
-                borderRadius: "12px",
-                border: "1px solid #374151",
-                background: "#1f2937",
-                color: "white",
-                marginBottom: "16px",
-                boxShadow: "0 2px 8px rgba(0,0,0,0.10)",
-                outline: "none"
-              }}
+              className={styles.filePreviewComment}
             />
-            <div style={{ display: "flex", gap: "16px", justifyContent: "center" }}>
+            <div className={styles.filePreviewBtnGroup}>
               <button
                 type="button"
                 onClick={() => { setSelectedFiles([]); setFilePreviews([]); setComment(""); }}
-                style={{
-                  padding: "12px 24px",
-                  background: "#dc2626",
-                  color: "white",
-                  borderRadius: "12px",
-                  fontWeight: 500,
-                  border: "none",
-                  cursor: "pointer",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "8px",
-                  boxShadow: "0 2px 8px rgba(0,0,0,0.15)"
-                }}
+                className={styles.filePreviewCancelBtn}
                 disabled={uploadingFile}
               >
                 <svg width="20" height="20" fill="none" stroke="white" viewBox="0 0 24 24">
@@ -816,19 +663,7 @@ export default function ChatPage() {
               </button>
               <button
                 type="submit"
-                style={{
-                  padding: "12px 24px",
-                  background: "#16a34a",
-                  color: "white",
-                  borderRadius: "12px",
-                  fontWeight: 500,
-                  border: "none",
-                  cursor: "pointer",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "8px",
-                  boxShadow: "0 2px 8px rgba(0,0,0,0.15)"
-                }}
+                className={styles.filePreviewSendBtn}
                 disabled={uploadingFile}
               >
                 {uploadingFile ? (
@@ -857,28 +692,12 @@ export default function ChatPage() {
       {!selectedFiles.length && (
         <form
           onSubmit={handleSend}
-          style={{
-            display: "flex",
-            gap: "8px",
-            padding: "16px",
-            borderTop: "1px solid #27272a",
-            background: "#18181b",
-            position: "relative"
-          }}
+          className={styles.inputBar}
         >
-          <div style={{ position: "relative", width: "100%", display: "flex", alignItems: "center", gap: "8px" }}>
+          <div className={styles.inputWrapper}>
             <label
               htmlFor="hiddenFileInput"
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                width: "48px",
-                height: "48px",
-                borderRadius: "50%",
-                cursor: "pointer",
-                background: "#23272f"
-              }}
+              className={styles.fileLabel}
               tabIndex={-1}
             >
               <svg width="24" height="24" fill="none" stroke="#9ca3af" strokeWidth="2" viewBox="0 0 24 24">
@@ -890,31 +709,11 @@ export default function ChatPage() {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               placeholder="Escribe un mensaje..."
-              style={{
-                flex: 1,
-                padding: "12px 16px",
-                borderRadius: "12px",
-                border: "1px solid #374151",
-                background: "#18181b",
-                color: "white",
-                outline: "none"
-              }}
+              className={styles.inputText}
             />
             <button
               type="submit"
-              style={{
-                padding: "12px 24px",
-                background: "#16a34a",
-                color: "white",
-                borderRadius: "12px",
-                fontWeight: 500,
-                border: "none",
-                cursor: "pointer",
-                display: "flex",
-                alignItems: "center",
-                gap: "8px",
-                boxShadow: "0 2px 8px rgba(0,0,0,0.15)"
-              }}
+              className={styles.sendBtn}
             >
               <svg width="20" height="20" fill="none" stroke="white" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
@@ -931,52 +730,21 @@ export default function ChatPage() {
       {/* Vista de archivo */}
       {isViewingFile && viewingFileUrl && (
         <div
-          style={{
-            position: "fixed",
-            top: 0,
-            left: 0,
-            width: "100vw",
-            height: "100vh",
-            background: "rgba(0,0,0,0.8)",
-            zIndex: 1000,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center"
-          }}
+          className={styles.fileViewModal}
           onClick={handleCloseFileView}
         >
           <div
-            style={{
-              background: "#18181b",
-              borderRadius: "18px",
-              padding: "32px",
-              maxWidth: "90vw",
-              maxHeight: "90vh",
-              overflow: "auto",
-              position: "relative"
-            }}
+            className={styles.fileViewContent}
             onClick={e => e.stopPropagation()}
           >
             <button
               onClick={handleCloseFileView}
-              style={{
-                position: "absolute",
-                top: "16px",
-                right: "16px",
-                background: "#dc2626",
-                color: "white",
-                border: "none",
-                borderRadius: "50%",
-                width: "32px",
-                height: "32px",
-                fontWeight: "bold",
-                cursor: "pointer"
-              }}
+              className={styles.fileViewCloseBtn}
               title="Cerrar"
             >
               ×
             </button>
-            <h2 style={{ color: "white", marginBottom: "16px" }}>{viewingFileName}</h2>
+            <h2 className={styles.fileViewTitle}>{viewingFileName}</h2>
             {viewingFileType?.startsWith("image") ? (
               <img
                 src={viewingFileUrl}
@@ -1010,7 +778,7 @@ export default function ChatPage() {
               </a>
             )}
             {fileAvailability?.warning && (
-              <div style={{ color: "#facc15", marginTop: "16px" }}>
+              <div className={styles.fileViewWarning}>
                 {fileAvailability.warning}
               </div>
             )}
