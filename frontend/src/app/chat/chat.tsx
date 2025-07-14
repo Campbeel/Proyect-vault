@@ -15,6 +15,7 @@ import {
   useDisconnect
 } from "../../imports";
 import React from "react";
+import { BACKEND_URL } from "../../config/api";
 
 // =======================
 // TIPOS Y MODELOS
@@ -116,7 +117,7 @@ export default function ChatPage() {
   const saveConversation = useCallback(async () => {
     if (!address || messages.length === 0) return;
     try {
-      await axios.post("http://localhost:5000/conversations", {
+      await axios.post(`${BACKEND_URL}/conversations`, {
         wallet: address,
         mensajes: messages
       });
@@ -148,7 +149,7 @@ export default function ChatPage() {
     setFileAvailability(null);
     try {
       const hash = fileToView.ipfsUrl.replace('ipfs://', '');
-      const response = await axios.get(`http://localhost:5000/api/files/hash/${hash}?wallet=${address}`);
+      const response = await axios.get(`${BACKEND_URL}/api/files/hash/${hash}?wallet=${address}`);
       if (response.data && response.data.success) {
         const fileData = response.data.file;
         setViewingFileUrl(fileData.gatewayUrl);
@@ -251,7 +252,7 @@ export default function ChatPage() {
           const formData = new FormData();
           formData.append('file', file, file.name);
           formData.append('wallet', address);
-          const response = await axios.post('http://localhost:5000/upload', formData);
+          const response = await axios.post(`${BACKEND_URL}/upload`, formData);
           if (response.data && response.data.ipfsUrl) {
             const ipfsHash = response.data.ipfsUrl;
             const message = `Guardar archivo: ${ipfsHash}`;
@@ -262,7 +263,7 @@ export default function ChatPage() {
                 params: [message, address],
               });
             }
-            await axios.post('http://localhost:5000/api/files', {
+            await axios.post(`${BACKEND_URL}/api/files`, {
               ipfsHash,
               message,
               signature,
@@ -311,7 +312,7 @@ export default function ChatPage() {
         if (parsed.action) {
           if (parsed.action === 'listar_archivos') {
             try {
-              const res = await axios.get(`http://localhost:5000/files/${address}`);
+              const res = await axios.get(`${BACKEND_URL}/files/${address}`);
               if (res.data && res.data.files) {
                 setSavedFiles(res.data.files);
               } else {
@@ -321,7 +322,7 @@ export default function ChatPage() {
               setSavedFiles([]);
             }
           }
-          const backendResponse = await axios.post('http://localhost:5000/chat/agent', {
+          const backendResponse = await axios.post(`${BACKEND_URL}/chat/agent`, {
             action: parsed.action,
             params: parsed.metadata,
             wallet: address || ""
@@ -413,7 +414,7 @@ export default function ChatPage() {
           params: [message, address],
         });
       }
-      const response = await axios.post('http://localhost:5000/chat/agent', {
+      const response = await axios.post(`${BACKEND_URL}/chat/agent`, {
         action: 'eliminar_archivo',
         params: { fileName: file.originalFileName },
         wallet: address
@@ -436,7 +437,7 @@ export default function ChatPage() {
   const handleDownloadFile = async (file: SavedFile) => {
     setActionLoading(file.id);
     try {
-      const response = await axios.post('http://localhost:5000/chat/agent', {
+      const response = await axios.post(`${BACKEND_URL}/chat/agent`, {
         action: 'descargar_archivo',
         params: { fileName: file.originalFileName },
         wallet: address
@@ -791,7 +792,7 @@ export default function ChatPage() {
 
 // Conexión real a Gemini (proxy backend)
 async function geminiApi(input: string, wallet?: string) {
-  const response = await fetch('https://proyect-vault.onrender.com/api/gemini', {
+  const response = await fetch(`${BACKEND_URL}/api/gemini`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ input, wallet })
