@@ -160,62 +160,72 @@ app.get('/api/files/hash/:hash', async (req: Request, res: Response) => {
   try {
     const { hash } = req.params;
     const { wallet } = req.query;
-    
     if (!hash) {
       return res.status(400).json({ error: 'Hash requerido.' });
     }
-    
     if (!wallet) {
       return res.status(400).json({ error: 'Wallet requerida para verificar propiedad.' });
     }
-    
-    // Verificar que el archivo pertenece al usuario
+    // Normalizar hash (sin prefijo, minúsculas)
+    const cleanHash = hash.replace(/^ipfs:\/\//i, '').toLowerCase();
+    // Buscar usuario y archivos
     const user = await prisma.user.findUnique({
       where: { wallet: wallet.toString().toLowerCase() },
       include: { files: true }
     });
-    
-    if (!user) {
-      return res.status(404).json({ error: 'Usuario no encontrado.' });
+    let file = null;
+    if (user) {
+      file = user.files.find(f => {
+        const dbHash = (f.pinataHash || '').replace(/^ipfs:\/\//i, '').toLowerCase();
+        const dbIpfs = (f.ipfsUrl || '').replace(/^ipfs:\/\//i, '').toLowerCase();
+        return dbHash === cleanHash || dbIpfs === cleanHash;
+      });
     }
-    
-    // Buscar el archivo en la base de datos del usuario
-    const file = user.files.find(f => f.pinataHash === hash || f.ipfsUrl.includes(hash));
-    
+    // Si no se encuentra en la base de datos, devolver igualmente la URL pública de IPFS
     if (!file) {
-      return res.status(404).json({ error: 'Archivo no encontrado o no tienes permisos.' });
+      return res.json({
+        success: true,
+        file: {
+          id: null,
+          ipfsUrl: `ipfs://${cleanHash}`,
+          originalFileName: null,
+          fileType: null,
+          fileSize: null,
+          gatewayUrl: `https://gateway.pinata.cloud/ipfs/${cleanHash}`,
+          uploadedAt: null,
+          isAvailable: true,
+          warning: 'Archivo no registrado en la base de datos, solo previsualización pública.'
+        }
+      });
     }
-    
     // Obtener metadata actualizada desde Pinata
     const pinataJWT = process.env.PINATA_JWT;
     try {
-      const metaRes = await axios.get(`https://api.pinata.cloud/data/pinList?hashContains=${hash}`,
+      const metaRes = await axios.get(`https://api.pinata.cloud/data/pinList?hashContains=${cleanHash}`,
         { headers: { 'Authorization': `Bearer ${pinataJWT}` } });
-      
       const pinataItem = metaRes.data.rows && metaRes.data.rows[0];
-      
-      if (!pinataItem) {
-        return res.status(404).json({ error: 'Archivo no encontrado en Pinata.' });
-      }
-      
       // Verificar que el archivo está disponible
-      const gatewayUrl = `https://gateway.pinata.cloud/ipfs/${hash}`;
-      const availabilityCheck = await axios.head(gatewayUrl, { timeout: 5000 });
-      
+      const gatewayUrl = `https://gateway.pinata.cloud/ipfs/${cleanHash}`;
+      let isAvailable = false;
+      try {
+        const availabilityCheck = await axios.head(gatewayUrl, { timeout: 5000 });
+        isAvailable = availabilityCheck.status === 200;
+      } catch {
+        isAvailable = false;
+      }
       res.json({
         success: true,
         file: {
           id: file.id,
-          ipfsUrl: `ipfs://${hash}`,
-          originalFileName: pinataItem.metadata?.name || file.originalName,
-          fileType: pinataItem.metadata?.keyvalues?.type || file.fileType,
+          ipfsUrl: `ipfs://${cleanHash}`,
+          originalFileName: pinataItem?.metadata?.name || file.originalName,
+          fileType: pinataItem?.metadata?.keyvalues?.type || file.fileType,
           fileSize: file.fileSize,
           gatewayUrl: gatewayUrl,
           uploadedAt: file.uploadedAt,
-          isAvailable: availabilityCheck.status === 200
+          isAvailable: isAvailable
         }
       });
-      
     } catch (pinataError) {
       console.error('Error al verificar archivo en Pinata:', pinataError);
       // Si no se puede verificar en Pinata, devolver datos locales
@@ -227,14 +237,13 @@ app.get('/api/files/hash/:hash', async (req: Request, res: Response) => {
           originalFileName: file.originalName,
           fileType: file.fileType,
           fileSize: file.fileSize,
-          gatewayUrl: `https://gateway.pinata.cloud/ipfs/${hash}`,
+          gatewayUrl: `https://gateway.pinata.cloud/ipfs/${cleanHash}`,
           uploadedAt: file.uploadedAt,
           isAvailable: false,
           warning: 'No se pudo verificar disponibilidad en Pinata'
         }
       });
     }
-    
   } catch (error) {
     console.error('Error al obtener archivo por hash:', error);
     res.status(500).json({ error: 'Error interno del servidor.' });
