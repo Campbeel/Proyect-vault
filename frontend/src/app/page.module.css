@@ -15,7 +15,7 @@
   width: 100%;
   max-width: 1200px;
   margin: 0 auto;
-  padding: 32px 32px 0 32px;
+  padding: 40px 40px 0 40px;
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
@@ -26,43 +26,48 @@
 .logoRow {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 14px;
 }
 
 .logoIcon {
-  width: 40px;
-  height: 40px;
+  width: 44px;
+  height: 44px;
   background: linear-gradient(to right, #34d399, #3b82f6);
-  border-radius: 12px;
+  border-radius: 14px;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
 .logoText {
-  font-size: 2rem;
+  font-size: 2.3rem;
   font-weight: bold;
   color: white;
+  letter-spacing: -1px;
 }
 
 /* Botón arriba a la derecha */
 .headerBtn {
   position: absolute;
-  top: 32px;
-  right: 32px;
-  padding: 8px 20px;
+  top: 40px;
+  right: 40px;
+  padding: 12px 32px;
   background: linear-gradient(to right, #22d3ee, #6366f1);
   color: white;
-  border-radius: 12px;
-  font-weight: 500;
-  font-size: 1rem;
+  border-radius: 16px;
+  font-weight: 600;
+  font-size: 1.1rem;
   border: none;
   cursor: pointer;
   display: flex;
   align-items: center;
-  gap: 8px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+  gap: 10px;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.18);
   z-index: 20;
+  transition: background 0.2s;
+}
+.headerBtn:hover {
+  background: linear-gradient(to right, #38bdf8, #818cf8);
 }
 
 /* Hero section */
@@ -73,65 +78,78 @@
   align-items: center;
   justify-content: flex-start;
   padding: 0 16px;
-  margin-top: 32px;
+  margin-top: 40px;
 }
 
 .heroTitle {
-  font-size: 3rem;
-  font-weight: bold;
+  font-size: 4rem;
+  font-weight: 900;
   color: white;
   text-align: center;
-  margin-bottom: 24px;
-  margin-top: 32px;
+  margin-bottom: 28px;
+  margin-top: 36px;
+  letter-spacing: -2px;
+  line-height: 1.1;
 }
 
 .heroHighlight {
-  color: #22d3ee;
+  background: linear-gradient(90deg, #22d3ee 30%, #38bdf8 60%, #3b82f6 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  text-fill-color: transparent;
+  font-weight: 900;
 }
 
 .heroSubtitle {
-  font-size: 1.25rem;
+  font-size: 1.35rem;
   color: #d1d5db;
   text-align: center;
-  margin-bottom: 48px;
-  max-width: 600px;
+  margin-bottom: 56px;
+  max-width: 700px;
   margin-left: auto;
   margin-right: auto;
+  line-height: 1.6;
 }
 
 /* Features grid */
 .featuresGrid {
   display: flex;
   flex-wrap: wrap;
-  gap: 32px;
+  gap: 36px;
   width: 100%;
-  max-width: 1000px;
-  margin: 40px auto 0 auto;
+  max-width: 1100px;
+  margin: 56px auto 0 auto;
   justify-content: center;
 }
 
 .featureCard {
-  background: rgba(31,41,55,0.7);
-  border-radius: 18px;
-  padding: 32px 28px;
-  border: 1px solid #23272f;
-  box-shadow: 0 2px 12px rgba(0,0,0,0.15);
+  background: rgba(31,41,55,0.85);
+  border-radius: 22px;
+  padding: 40px 32px 36px 32px;
+  border: 1.5px solid #23272f;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.18);
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  min-width: 260px;
-  max-width: 320px;
-  flex: 1 1 260px;
+  min-width: 280px;
+  max-width: 340px;
+  flex: 1 1 300px;
+  transition: box-shadow 0.2s, border 0.2s;
+}
+.featureCard:hover {
+  box-shadow: 0 8px 32px rgba(34,211,238,0.10), 0 4px 24px rgba(0,0,0,0.22);
+  border: 1.5px solid #22d3ee;
 }
 
 .featureIcon1, .featureIcon2, .featureIcon3 {
-  width: 48px;
-  height: 48px;
-  border-radius: 12px;
+  width: 56px;
+  height: 56px;
+  border-radius: 14px;
   display: flex;
   align-items: center;
   justify-content: center;
-  margin-bottom: 24px;
+  margin-bottom: 28px;
 }
 
 .featureIcon1 { background: linear-gradient(to right, #34d399, #059669); }
@@ -139,19 +157,20 @@
 .featureIcon3 { background: linear-gradient(to right, #a78bfa, #8b5cf6); }
 
 .featureTitle {
-  font-size: 1.15rem;
-  font-weight: 600;
+  font-size: 1.25rem;
+  font-weight: 700;
   color: white;
-  margin-bottom: 12px;
+  margin-bottom: 14px;
 }
 
 .featureText {
   color: #d1d5db;
   text-align: left;
-  font-size: 1rem;
+  font-size: 1.08rem;
+  line-height: 1.6;
 }
 
-/* Footer */
+/* Footer (sin cambios) */
 .footer {
   border-top: 1px solid #27272a;
   margin-top: 80px;

@@ -565,198 +565,201 @@ export default function ChatPage() {
         </button>
       </div>
 
-      {/* Mensajes */}
-      <div className={styles.messages}>
-        {messages.map((msg, idx) => (
-          <div
-            key={idx}
-            className={`${styles.messageRow} ${msg.sender === "user" ? styles.messageUser : styles.messageAgent}`}
-          >
+      {/* Chat container para encuadre y anclaje */}
+      <div className={styles.chatContainer}>
+        {/* Mensajes */}
+        <div className={styles.messages}>
+          {messages.map((msg, idx) => (
             <div
-              className={`${styles.messageBubble} ${msg.sender === "user" ? styles.messageBubbleUser : ""}`}
+              key={idx}
+              className={`${styles.messageRow} ${msg.sender === "user" ? styles.messageUser : styles.messageAgent}`}
             >
-              {typeof msg.text === 'string' ? (
-                <>
-                  <span style={{ whiteSpace: 'pre-line' }}>{msg.text}</span>
-                  {msg.downloadInfo && (
-                    <button
-                      onClick={async () => {
-                        if (msg.downloadInfo?.isAvailable) {
-                          const fileResponse = await fetch(msg.downloadInfo?.gatewayUrl);
-                          const blob = await fileResponse.blob();
-                          const url = window.URL.createObjectURL(blob);
-                          const a = document.createElement('a');
-                          a.href = url;
-                          a.download = msg.downloadInfo?.originalName;
-                          document.body.appendChild(a);
-                          a.click();
-                          a.remove();
-                          window.URL.revokeObjectURL(url);
-                        } else {
-                          alert(msg.downloadInfo?.warning || 'El archivo no está disponible.');
-                        }
-                      }}
-                      style={{
-                        marginLeft: "8px",
-                        padding: "4px 12px",
-                        background: "#2563eb",
-                        color: "white",
-                        borderRadius: "8px",
-                        border: "none",
-                        fontSize: "0.85rem",
-                        cursor: "pointer"
-                      }}
-                    >
-                      Descargar archivo
-                    </button>
-                  )}
-                </>
-              ) : (
-                <span style={{ color: 'red' }}>[Respuesta no textual]</span>
-              )}
-            </div>
-          </div>
-        ))}
-        <div ref={chatEndRef} />
-      </div>
-
-      {/* Input de archivos oculto */}
-      <input
-        type="file"
-        id="hiddenFileInput"
-        ref={fileInputRef}
-        onChange={handleFileSelect}
-        style={{ display: 'none' }}
-        multiple
-        accept="*/*"
-      />
-
-      {/* Vista previa de archivos seleccionados */}
-      {selectedFiles.length > 0 && (
-        <div className={styles.filePreviewContainer}>
-          <p style={{ color: "white", marginBottom: "16px", fontSize: "1.125rem", fontWeight: 500 }}>Vista previa de archivos:</p>
-          <div className={styles.filePreviewList}>
-            {selectedFiles.map((file, index) => (
-              <div key={file.name + index} className={styles.filePreviewItem}>
-                {file.type.startsWith('image') && (
-                  <img src={filePreviews[index]} alt={file.name} className={styles.filePreviewImg} />
-                )}
-                {file.type.startsWith('video') && (
-                  <video controls src={filePreviews[index]} className={styles.filePreviewVideo} />
-                )}
-                {!file.type.startsWith('image') && !file.type.startsWith('video') && (
-                  <div className={styles.filePreviewIcon}>
-                    <svg width="48" height="48" fill="none" stroke="#9ca3af" strokeWidth="2" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                    </svg>
-                  </div>
-                )}
-                <p className={styles.filePreviewName}>{file.name}</p>
-                <p className={styles.filePreviewSize}>{(file.size / 1024 / 1024).toFixed(2)} MB</p>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSelectedFiles(prev => prev.filter((_, i) => i !== index));
-                    setFilePreviews(prev => prev.filter((_, i) => i !== index));
-                  }}
-                  className={styles.filePreviewRemoveBtn}
-                  title="Eliminar archivo"
-                >
-                  <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              </div>
-            ))}
-          </div>
-          <form onSubmit={handleSend} className={styles.filePreviewForm}>
-            <label htmlFor="hiddenFileInput" className={styles.filePreviewAttachBtn}>
-              <svg width="20" height="20" fill="none" stroke="white" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" />
-              </svg>
-              Adjuntar otro archivo
-            </label>
-            <input
-              type="text"
-              value={comment}
-              onChange={(e) => setComment(e.target.value)}
-              placeholder="Añadir un comentario (opcional)"
-              className={styles.filePreviewComment}
-            />
-            <div className={styles.filePreviewBtnGroup}>
-              <button
-                type="button"
-                onClick={() => { setSelectedFiles([]); setFilePreviews([]); setComment(""); }}
-                className={styles.filePreviewCancelBtn}
-                disabled={uploadingFile}
+              <div
+                className={`${styles.messageBubble} ${msg.sender === "user" ? styles.messageBubbleUser : ""}`}
               >
-                <svg width="20" height="20" fill="none" stroke="white" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
-                </svg>
-                Cancelar
-              </button>
-              <button
-                type="submit"
-                className={styles.filePreviewSendBtn}
-                disabled={uploadingFile}
-              >
-                {uploadingFile ? (
+                {typeof msg.text === 'string' ? (
                   <>
-                    <svg width="20" height="20" fill="none" stroke="white" viewBox="0 0 24 24">
-                      <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" opacity="0.25"></circle>
-                      <path fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" opacity="0.75"></path>
-                    </svg>
-                    Subiendo...
+                    <span style={{ whiteSpace: 'pre-line' }}>{msg.text}</span>
+                    {msg.downloadInfo && (
+                      <button
+                        onClick={async () => {
+                          if (msg.downloadInfo?.isAvailable) {
+                            const fileResponse = await fetch(msg.downloadInfo?.gatewayUrl);
+                            const blob = await fileResponse.blob();
+                            const url = window.URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.href = url;
+                            a.download = msg.downloadInfo?.originalName;
+                            document.body.appendChild(a);
+                            a.click();
+                            a.remove();
+                            window.URL.revokeObjectURL(url);
+                          } else {
+                            alert(msg.downloadInfo?.warning || 'El archivo no está disponible.');
+                          }
+                        }}
+                        style={{
+                          marginLeft: "8px",
+                          padding: "4px 12px",
+                          background: "#2563eb",
+                          color: "white",
+                          borderRadius: "8px",
+                          border: "none",
+                          fontSize: "0.85rem",
+                          cursor: "pointer"
+                        }}
+                      >
+                        Descargar archivo
+                      </button>
+                    )}
                   </>
                 ) : (
-                  <>
-                    <svg width="20" height="20" fill="none" stroke="white" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-                    </svg>
-                    Enviar Archivos
-                  </>
+                  <span style={{ color: 'red' }}>[Respuesta no textual]</span>
                 )}
+              </div>
+            </div>
+          ))}
+          <div ref={chatEndRef} />
+        </div>
+
+        {/* Input de archivos oculto */}
+        <input
+          type="file"
+          id="hiddenFileInput"
+          ref={fileInputRef}
+          onChange={handleFileSelect}
+          style={{ display: 'none' }}
+          multiple
+          accept="*/*"
+        />
+
+        {/* Vista previa de archivos seleccionados */}
+        {selectedFiles.length > 0 && (
+          <div className={styles.filePreviewContainer}>
+            <p style={{ color: "white", marginBottom: "16px", fontSize: "1.125rem", fontWeight: 500 }}>Vista previa de archivos:</p>
+            <div className={styles.filePreviewList}>
+              {selectedFiles.map((file, index) => (
+                <div key={file.name + index} className={styles.filePreviewItem}>
+                  {file.type.startsWith('image') && (
+                    <img src={filePreviews[index]} alt={file.name} className={styles.filePreviewImg} />
+                  )}
+                  {file.type.startsWith('video') && (
+                    <video controls src={filePreviews[index]} className={styles.filePreviewVideo} />
+                  )}
+                  {!file.type.startsWith('image') && !file.type.startsWith('video') && (
+                    <div className={styles.filePreviewIcon}>
+                      <svg width="48" height="48" fill="none" stroke="#9ca3af" strokeWidth="2" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                      </svg>
+                    </div>
+                  )}
+                  <p className={styles.filePreviewName}>{file.name}</p>
+                  <p className={styles.filePreviewSize}>{(file.size / 1024 / 1024).toFixed(2)} MB</p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedFiles(prev => prev.filter((_, i) => i !== index));
+                      setFilePreviews(prev => prev.filter((_, i) => i !== index));
+                    }}
+                    className={styles.filePreviewRemoveBtn}
+                    title="Eliminar archivo"
+                  >
+                    <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+              ))}
+            </div>
+            <form onSubmit={handleSend} className={styles.filePreviewForm}>
+              <label htmlFor="hiddenFileInput" className={styles.filePreviewAttachBtn}>
+                <svg width="20" height="20" fill="none" stroke="white" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" />
+                </svg>
+                Adjuntar otro archivo
+              </label>
+              <input
+                type="text"
+                value={comment}
+                onChange={(e) => setComment(e.target.value)}
+                placeholder="Añadir un comentario (opcional)"
+                className={styles.filePreviewComment}
+              />
+              <div className={styles.filePreviewBtnGroup}>
+                <button
+                  type="button"
+                  onClick={() => { setSelectedFiles([]); setFilePreviews([]); setComment(""); }}
+                  className={styles.filePreviewCancelBtn}
+                  disabled={uploadingFile}
+                >
+                  <svg width="20" height="20" fill="none" stroke="white" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className={styles.filePreviewSendBtn}
+                  disabled={uploadingFile}
+                >
+                  {uploadingFile ? (
+                    <>
+                      <svg width="20" height="20" fill="none" stroke="white" viewBox="0 0 24 24">
+                        <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" opacity="0.25"></circle>
+                        <path fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" opacity="0.75"></path>
+                      </svg>
+                      Subiendo...
+                    </>
+                  ) : (
+                    <>
+                      <svg width="20" height="20" fill="none" stroke="white" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                      </svg>
+                      Enviar Archivos
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        )}
+
+        {/* Formulario de mensaje */}
+        {!selectedFiles.length && (
+          <form
+            onSubmit={handleSend}
+            className={styles.inputBar}
+          >
+            <div className={styles.inputWrapper}>
+              <label
+                htmlFor="hiddenFileInput"
+                className={styles.fileLabel}
+                tabIndex={-1}
+              >
+                <svg width="24" height="24" fill="none" stroke="#9ca3af" strokeWidth="2" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l7.07-7.07a4 4 0 00-5.656-5.657l-7.071 7.07a6 6 0 108.485 8.486L19 13" />
+                </svg>
+              </label>
+              <input
+                type="text"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                placeholder="Escribe un mensaje..."
+                className={styles.inputText}
+              />
+              <button
+                type="submit"
+                className={styles.sendBtn}
+              >
+                <svg width="20" height="20" fill="none" stroke="white" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                </svg>
+                Enviar
               </button>
             </div>
           </form>
-        </div>
-      )}
-
-      {/* Formulario de mensaje */}
-      {!selectedFiles.length && (
-        <form
-          onSubmit={handleSend}
-          className={styles.inputBar}
-        >
-          <div className={styles.inputWrapper}>
-            <label
-              htmlFor="hiddenFileInput"
-              className={styles.fileLabel}
-              tabIndex={-1}
-            >
-              <svg width="24" height="24" fill="none" stroke="#9ca3af" strokeWidth="2" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l7.07-7.07a4 4 0 00-5.656-5.657l-7.071 7.07a6 6 0 108.485 8.486L19 13" />
-              </svg>
-            </label>
-            <input
-              type="text"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              placeholder="Escribe un mensaje..."
-              className={styles.inputText}
-            />
-            <button
-              type="submit"
-              className={styles.sendBtn}
-            >
-              <svg width="20" height="20" fill="none" stroke="white" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-              </svg>
-              Enviar
-            </button>
-          </div>
-        </form>
-      )}
+        )}
+      </div>
 
       {/* Snackbar de confirmación visual */}
       {snackbar && <Snackbar message={snackbar} onClose={() => setSnackbar(null)} />}
