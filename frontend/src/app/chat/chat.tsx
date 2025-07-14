@@ -791,7 +791,7 @@ export default function ChatPage() {
 
 // Conexión real a Gemini (proxy backend)
 async function geminiApi(input: string, wallet?: string) {
-  const response = await fetch("http://localhost:5000/api/gemini", {
+  const response = await fetch('https://proyect-vault.onrender.com/api/gemini', {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ input, wallet })
