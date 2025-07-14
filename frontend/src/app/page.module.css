@@ -205,10 +205,8 @@
   color: #9ca3af;
 }
 
-.footerLinks a {
-  color: #9ca3af;
-  text-decoration: none;
-}
+.footerLinks {
+  display: flex; /* requerido para que funcione gap */
   gap: 24px;
   color: #9ca3af;
 }
