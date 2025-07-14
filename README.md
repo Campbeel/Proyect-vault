@@ -50,6 +50,6 @@ Vault Web3 es una **caja fuerte digital descentralizada**:
 **Funcionamiento principal con Metamask.**
 ---
 
-## 👥 Autores
+## Autor
 
 - Benjamin Muñoz
