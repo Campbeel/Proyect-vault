@@ -47,6 +47,8 @@ Vault Web3 es una **caja fuerte digital descentralizada**:
   - Uso de contrato para guardado de hash de archivoss.
 
 ---
+**Funcionamiento principal con Metamask.**
+---
 
 ## 👥 Autores
 
